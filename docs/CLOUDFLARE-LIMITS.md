@@ -31,6 +31,8 @@ Optional Open-Meteo context shares the existing `monitor:v1` first/result checkp
 
 KV's one-write-per-second rule cannot be enforced globally by this Worker under concurrency. Do not run multiple Crons/Workers against one namespace or rapidly repeat manual polls. Other workloads can exhaust your account-wide allowance even if this monitor stays within its estimate.
 
+Authorized `/status` renders optional weather from the same monitor cache read it already uses for battery data. It makes no Deye/weather request, writes no forecast guard or monitor state, and retains the single bounded Telegram reply plus normal command replay write. Existing read/write/subrequest design bounds are unchanged. Decoding up to six points and formatting up to three adds CPU that still needs live measurement.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.

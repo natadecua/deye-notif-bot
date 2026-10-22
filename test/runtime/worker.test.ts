@@ -147,6 +147,56 @@ test('workerd authenticates webhook status and charging buttons using local KV a
   } finally { await runtime.dispose(); }
 });
 
+test('workerd renders fresh/stale weather from authorized status cache with only a Telegram reply', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  for (const stale of [false, true]) {
+    const c = config({ telegram: { enabled: true },
+      weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true } });
+    const secret = 'synthetic-webhook-secret-1234567890', messages: string[] = [];
+    let outboundCalls = 0;
+    const runtime = new Miniflare(convertV4MiniflareOptions({
+      modules: true, script: bundled.outputFiles[0].text, cf: false,
+      compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+      bindings: { ...syntheticSecrets, MONITOR_CONFIG: c, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789' },
+      outboundService: async (request: LocalRequest) => {
+        outboundCalls++;
+        assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+        assert(new URL(request.url).pathname.endsWith('/sendMessage'));
+        messages.push((await request.json() as { text: string }).text);
+        return new LocalResponse(JSON.stringify({ ok: true }));
+      },
+    }));
+    try {
+      const now = Date.now(), s = initialState(c), fetchedAt = now - (stale ? 3600_000 : 150_000);
+      s.lastReadingAt = now - 60_000; s.latestReading = { at: s.lastReadingAt, soc: 82, dischargeWatts: 800 };
+      s.weather = { context: '[10,20]', attemptedAt: fetchedAt, fetchedAt, nextAttemptAt: fetchedAt + 3600_000,
+        hours: Array.from({ length: 6 }, (_, i) => ({ at: Math.floor(now / 3600_000) * 3600_000 + (i + 1) * 3600_000,
+          cloudCover: 40, radiation: 200 })) };
+      const kv = await runtime.getKVNamespace('STATE'), before = JSON.stringify(s);
+      await kv.put('monitor:v1', before);
+      const post = (header: string) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+        method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': header },
+        body: JSON.stringify({ update_id: 1, message: { message_id: 1, date: Math.floor(Date.now() / 1000),
+          from: { id: 789 }, chat: { id: 456 }, text: '/status' } }),
+      });
+      assert.equal((await post('synthetic-wrong')).status, 403); assert.equal(outboundCalls, 0);
+      assert.equal((await post(secret)).status, 200); assert.equal(outboundCalls, 1);
+      assert.match(messages[0], /Charge: 82%/); assert.match(messages[0], /Cached weather/);
+      if (stale) {
+        assert.match(messages[0], /stale — do not treat this as current/);
+        assert.match(messages[0], /Weather forecast unavailable/);
+        assert.doesNotMatch(messages[0], /cloud 40%/);
+      } else {
+        assert.match(messages[0], /Forecast cache age: \d+ seconds \(within the 1-hour freshness limit\)/);
+        assert.match(messages[0], /cloud 40%, radiation 200 W\/m²/);
+        assert.match(messages[0], /Weather data: Open-Meteo/);
+      }
+      assert.equal(await kv.get('monitor:v1'), before);
+    } finally { await runtime.dispose(); }
+  }
+});
+
 test('workerd resumes a synthetic daytime confirmation and sends the duration-aware alert', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });

@@ -4,6 +4,7 @@ import { handleTelegramRequest } from '../src/bot.ts';
 import { runMonitor } from '../src/monitor.ts';
 import { validateConfig } from '../src/config.ts';
 import { BASE_TIME, config, harness, json } from './helpers.ts';
+import { initialState } from '../src/alerts.ts';
 
 // Entirely synthetic installation, sender/chat identifiers, token and webhook secret.
 const secret = 'synthetic-webhook-secret-1234567890';
@@ -64,6 +65,97 @@ test('/status explains absent and stale readings instead of presenting them as l
   const stale = setup(); stale.reading(80, 0); await runMonitor(stale.env, stale.deps);
   stale.advance(700_000); await stale.send(stale.message('/status'));
   assert.match(stale.sent[0], /stale/i);
+});
+
+// Synthetic coordinates and hourly forecast; no owner location or live provider calls.
+function cachedWeather(h: ReturnType<typeof setup>, battery = true) {
+  const c = config({ telegram: { enabled: true },
+    weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true } });
+  h.env.MONITOR_CONFIG = c;
+  const s = initialState(c), fetchedAt = h.clock.time - 150_000;
+  if (battery) {
+    s.lastReadingAt = h.clock.time - 60_000;
+    s.latestReading = { at: s.lastReadingAt, soc: 82, dischargeWatts: 800 };
+  }
+  s.weather = { context: '[10,20]', attemptedAt: fetchedAt, fetchedAt, nextAttemptAt: fetchedAt + 3600_000,
+    hours: Array.from({ length: 6 }, (_, i) => ({ at: BASE_TIME + (i + 1) * 3600_000, cloudCover: 40, radiation: 200 })) };
+  return s;
+}
+
+test('/status shows independently aged cached weather without provider calls or extra KV operations', async () => {
+  const h = setup(), s = cachedWeather(h);
+  h.kv.data.set('monitor:v1', JSON.stringify(s));
+  const before = h.kv.data.get('monitor:v1'), reads: string[] = [];
+  const get = h.kv.get.bind(h.kv);
+  h.kv.get = async key => { reads.push(key); return get(key); };
+  await h.send(h.message('/status'));
+  const text = h.sent[0];
+  assert.match(text, /82%/); assert.match(text, /Data age: 60 seconds/);
+  assert.match(text, /Cached weather/); assert.match(text, /Forecast cache age: 150 seconds \(within the 1-hour freshness limit\)/);
+  assert.match(text, /cloud 40%, radiation 200 W\/m²/);
+  assert.match(text, /Retrieved: 2026-10-21 11:57 UTC/);
+  assert.match(text, /Weather data: Open-Meteo/); assert.match(text, /CC BY 4\.0/);
+  assert.match(text, /not measured PV or guaranteed charging power/);
+  assert.match(text, /EV charging: unknown/);
+  assert.doesNotMatch(text, /\[10,20\]|latitude|longitude|nextAttemptAt|attemptedAt/);
+  assert.deepEqual(reads, ['telegram:v1', 'monitor:v1']);
+  assert.deepEqual(h.kv.puts.map(p => p.key), ['telegram:v1']);
+  assert.equal(h.kv.data.get('monitor:v1'), before);
+  assert.equal(h.calls.length, 1); assert(h.calls[0].url.endsWith('/sendMessage'));
+});
+
+test('/status can show usable cached weather before the first battery reading', async () => {
+  const h = setup(), s = cachedWeather(h, false);
+  h.kv.data.set('monitor:v1', JSON.stringify(s));
+  await h.send(h.message('/status'));
+  assert.match(h.sent[0], /No cached reading/);
+  assert.match(h.sent[0], /cloud 40%, radiation 200 W\/m²/);
+  assert.match(h.sent[0], /Forecast cache age: 150 seconds/);
+});
+
+for (const reason of ['missing', 'failed', 'stale', 'future', 'location', 'corrupt', 'coverage'] as const) {
+  test(`/status labels ${reason} weather unavailable without hiding battery data or refreshing it`, async () => {
+    const h = setup(), s = cachedWeather(h), cache = s.weather as {
+      context: string; attemptedAt: number; fetchedAt?: number; nextAttemptAt: number;
+      hours?: { at: number; cloudCover: number; radiation: number }[];
+    };
+    if (reason === 'missing') delete s.weather;
+    if (reason === 'failed') { delete cache.fetchedAt; delete cache.hours; }
+    if (reason === 'stale') { cache.fetchedAt = cache.attemptedAt = h.clock.time - 3600_000; cache.nextAttemptAt = h.clock.time; }
+    if (reason === 'future') { cache.fetchedAt = cache.attemptedAt = h.clock.time + 1; cache.nextAttemptAt = h.clock.time + 3600_001; }
+    if (reason === 'location') cache.context = '[30,40]';
+    if (reason === 'corrupt') cache.hours![0].cloudCover = 101;
+    if (reason === 'coverage') cache.hours!.forEach(hour => { hour.at -= 12 * 3600_000; });
+    h.kv.data.set('monitor:v1', JSON.stringify(s)); const before = h.kv.data.get('monitor:v1');
+    await h.send(h.message('/status'));
+    assert.match(h.sent[0], /82%/);
+    assert.match(h.sent[0], /Weather forecast unavailable/);
+    assert.match(h.sent[0], /eligible scheduled discharge notification/);
+    assert.doesNotMatch(h.sent[0], /cloud \d|radiation \d|Battery alert uses|\[30,40\]/);
+    if (reason === 'stale') assert.match(h.sent[0], /Forecast cache age: 3600 seconds \(stale/);
+    if (['missing', 'failed', 'future', 'location', 'corrupt'].includes(reason)) assert.match(h.sent[0], /Forecast cache freshness: unavailable/);
+    assert.equal(h.kv.data.get('monitor:v1'), before);
+    assert.equal(h.calls.length, 1); assert(h.calls[0].url.endsWith('/sendMessage'));
+  });
+}
+
+test('/status omits stored forecast context when weather is disabled', async () => {
+  const h = setup(), s = cachedWeather(h);
+  h.env.MONITOR_CONFIG = { ...validateConfig(h.env.MONITOR_CONFIG), weather: { enabled: false } };
+  h.kv.data.set('monitor:v1', JSON.stringify(s));
+  await h.send(h.message('/status'));
+  assert.match(h.sent[0], /82%/); assert.doesNotMatch(h.sent[0], /weather|forecast|Open-Meteo/i);
+});
+
+test('unauthorized status cannot read the battery/weather cache or call any provider', async () => {
+  const h = setup(); let reads = 0;
+  h.kv.get = async () => { reads++; throw new Error('Synthetic unauthorized state access'); };
+  assert.equal((await handleTelegramRequest(h.request(h.message('/status'), 'synthetic-wrong'), h.env, h.deps)).status, 403);
+  for (const field of ['from', 'chat'] as const) {
+    const update = h.message('/status'); update.message[field].id = 999;
+    assert.equal((await h.send(update)).status, 403);
+  }
+  assert.equal(reads, 0); assert.equal(h.calls.length, 0); assert.equal(h.kv.puts.length, 0);
 });
 
 test('/status shows configured 8 A, 13 A and MAX reference levels without classifying a 315 W load as house-only', async () => {

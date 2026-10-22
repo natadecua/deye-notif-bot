@@ -7,7 +7,7 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 | Command / button | Result |
 | --- | --- |
 | `/start`, `/help` | Explain available commands, manual reports and limits. |
-| `/status` | Show the last accepted cached SOC/discharge reading, its UTC source time and age, plus the current charging report. No additional Deye call. |
+| `/status` | Show cached SOC/discharge, source time/age, the separate charging report and optional cached weather with its own freshness. No Deye or weather request. |
 | `/charging` | Report “I am charging” for six hours. This records user confirmation. |
 | `/charging PROFILE_ID` | Also report one of the owner's configured profile IDs. This is not a measurement of EV power/current. |
 | `/stopped` | Report “I am not charging” for six hours. It does not send a stop command to equipment. |
@@ -73,7 +73,9 @@ The status cache is populated only by accepted distinct readings. Duplicate/out-
 
 The optional daytime-discharge rule is configured offline with `npm run daytime:setup` and applied through manual deployment. `/settings` displays its timezone, hour window and minimum sampled duration. Chat switches/thresholds still apply, while `/settings reset` preserves this deployed daytime policy. Full-charge notifications retain their existing schedule. This feature needs no weather API and does not implement overnight reserve forecasting.
 
-Optional Open-Meteo context is configured separately with `npm run weather:setup`. `/settings` shows weather on/off without coordinates; `/settings reset` keeps the deployed weather preference. Only eligible measured discharge notifications can refresh the hourly forecast cache, sharing existing monitor checkpoints. Weather failure/staleness produces an unavailable note while the measured alert continues. No command fetches weather, and forecasts do not detect charging or authorize a nighttime exception. The normal nighttime battery priority remains the house.
+Optional Open-Meteo context is configured separately with `npm run weather:setup`. `/settings` shows weather on/off without coordinates; `/settings reset` keeps the deployed weather preference. Authorized `/status` displays cached hourly context with a separate forecast-cache age, retrieval time and provider/license attribution. This age describes retrieval, not model issuance or battery freshness. Forecast values are hidden at one hour or when validation/coverage fails; missing, failed, future-dated and wrong-location caches are unavailable. Battery data remains visible and weather can render even before a battery reading is cached. With weather disabled, the section is omitted. No coordinates or internal retry fields are shown.
+
+Only eligible measured discharge notifications can refresh the hourly forecast cache, sharing existing monitor checkpoints. Status explains this when the forecast is unavailable; repeated commands cannot force a refresh. Weather failure/staleness produces an unavailable note while the measured alert continues. No command fetches weather, and forecasts do not detect charging or authorize a nighttime exception. The normal nighttime battery priority remains the house. Cached weather adds no status reads/writes or provider calls beyond the existing monitor read and bounded Telegram reply; CPU for decoding/rendering remains unmeasured in production.
 
 Chat preferences live in `telegram:v1` and apply on subsequent Cron runs while commands are enabled. They override deployment preferences until `/settings reset`. Disabling Telegram commands restores use of the deployment preferences; re-enabling uses saved chat preferences. SOC/discharge thresholds can intentionally start new cycles under the existing identity rules. Switches and manual charging reports preserve battery cycles. Changing the station context clears the bot's contextual preferences/session.
 

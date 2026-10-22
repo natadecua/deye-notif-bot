@@ -91,14 +91,24 @@ export async function fetchWeather(cache: WeatherCache, c: Config, deps: Depende
     return cache;
   }
 }
-export function weatherText(raw: unknown, c: Config, now: number): string {
-  if (!c.weather?.enabled) return '';
-  const cache = decodeCache(raw, c);
-  if (!cache?.hours || cache.fetchedAt === undefined || now < cache.fetchedAt || now - cache.fetchedAt >= HOUR) return unavailable;
+function forecastText(cache: WeatherCache | undefined, now: number, fallback: string): string {
+  if (!cache?.hours || cache.fetchedAt === undefined || now < cache.fetchedAt || now - cache.fetchedAt >= HOUR) return fallback;
   const future = cache.hours.filter(h => h.at > now && h.at <= now + 3 * HOUR).slice(0, 3);
-  if (future.length !== 3) return unavailable;
+  if (future.length !== 3) return fallback;
   const utc = (at: number) => new Date(at).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
   return 'Weather forecast — next 3 hourly times:\n' +
     future.map(h => `${utc(h.at)}: cloud ${Math.round(h.cloudCover)}%, radiation ${Math.round(h.radiation)} W/m²`).join('\n') +
     `\nRounded forecasts; radiation is a previous-hour average, not measured PV or guaranteed charging power.\nRetrieved: ${utc(cache.fetchedAt)}\nWeather data: Open-Meteo — https://open-meteo.com/\nCC BY 4.0: https://creativecommons.org/licenses/by/4.0/`;
+}
+export function weatherText(raw: unknown, c: Config, now: number): string {
+  return c.weather?.enabled ? forecastText(decodeCache(raw, c), now, unavailable) : '';
+}
+export function weatherStatusText(raw: unknown, c: Config, now: number): string {
+  if (!c.weather?.enabled) return '';
+  const cache = decodeCache(raw, c);
+  const age = cache?.fetchedAt !== undefined && now >= cache.fetchedAt ? now - cache.fetchedAt : undefined;
+  const freshness = age === undefined ? 'Forecast cache freshness: unavailable.' :
+    `Forecast cache age: ${Math.floor(age / 1000)} seconds (${age < HOUR ? 'within the 1-hour freshness limit' : 'stale — do not treat this as current'}).`;
+  return `🌤 Cached weather\n${freshness}\n` + forecastText(cache, now,
+    'Weather forecast unavailable. An eligible scheduled discharge notification can refresh it; /status never requests weather.');
 }

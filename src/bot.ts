@@ -7,6 +7,7 @@ import { sendTelegram } from './telegram.ts';
 import { jsonPost } from './http.ts';
 import { SafeError } from './errors.ts';
 import { chargingProfileReference } from './profiles.ts';
+import { weatherStatusText } from './weather.ts';
 
 const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
@@ -37,11 +38,13 @@ async function payload(request: Request): Promise<Record<string, unknown>> {
 async function status(env: Env, c: Config, now: number): Promise<string> {
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   const r = state.latestReading;
-  if (!r) return '🔋 Battery status\n\nNo cached reading yet. Wait for a successful scheduled poll.';
+  const weather = weatherStatusText(state.weather, c, now);
+  const context = weather ? `\n\n${weather}` : '';
+  if (!r) return '🔋 Battery status\n\nNo cached reading yet. Wait for a successful scheduled poll.' + context;
   const age = Math.floor((now - r.at) / 1000);
   const quality = age < 0 || age > c.maxAgeSeconds ? 'stale — do not treat this as current' : 'within the configured freshness limit';
   const profiles = chargingProfileReference(c.ev);
-  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${Math.round(r.dischargeWatts)} W\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${new Date(r.at).toISOString().slice(0, 19).replace('T', ' ')} UTC\nData age: ${age} seconds (${quality})\n${c.enabled ? 'Scheduled monitoring is enabled.' : 'Scheduled monitoring is disabled.'}\nDeye Cloud data may be delayed.`;
+  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${Math.round(r.dischargeWatts)} W\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${new Date(r.at).toISOString().slice(0, 19).replace('T', ' ')} UTC\nData age: ${age} seconds (${quality})\n${c.enabled ? 'Scheduled monitoring is enabled.' : 'Scheduled monitoring is disabled.'}\nDeye Cloud data may be delayed.` + context;
 }
 export async function handleTelegramRequest(request: Request, env: Env, deps: Dependencies = defaults): Promise<Response> {
   const ok = () => new Response('OK');
