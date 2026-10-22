@@ -1,5 +1,6 @@
-import type { Config } from './types.ts';
+import type { Alert, Config, NotificationPreferences } from './types.ts';
 import { SafeError } from './errors.ts';
+import { validateChargingProfiles } from './profiles.ts';
 
 export const HOSTS = {
   eu: 'https://eu1-developer.deyecloud.com/v1.0',
@@ -30,12 +31,25 @@ export function validateConfig(raw: unknown): Config {
       !finite(c.ev.minimumAmps) || c.ev.minimumAmps <= 0 || c.ev.minimumAmps > 100)) {
     throw new SafeError('ev_config_unconfirmed');
   }
+  if (c.notifications !== undefined && (!c.notifications || Array.isArray(c.notifications) ||
+      typeof c.notifications.full !== 'boolean' || typeof c.notifications.discharge !== 'boolean')) {
+    throw new SafeError('notification_preferences_invalid');
+  }
+  validateChargingProfiles(c.ev);
   return c;
 }
 
-// A changed interpretation must never reuse earlier confirmation or pending messages.
+export function notificationPreferences(c: Config): NotificationPreferences {
+  return c.notifications ?? { full: true, discharge: true };
+}
+
+export function notificationEnabled(c: Config, kind: Alert['kind']): boolean {
+  return notificationPreferences(c)[kind];
+}
+
+// Measurement interpretation changes reset cycles. Delivery/EV display preferences do not.
 export function stateIdentity(c: Config): string {
   return JSON.stringify([c.region, c.stationId, c.powerUnit, c.timestampMode,
     c.fullSoc, c.fullRearmSoc, c.dischargeWatts, c.dischargeRearmWatts,
-    c.maxAgeSeconds, c.maxGapSeconds, c.ev]);
+    c.maxAgeSeconds, c.maxGapSeconds]);
 }

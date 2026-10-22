@@ -20,7 +20,8 @@
     "deploy": "tsx scripts/cli.ts validate-deploy && wrangler deploy",
     "secrets:upload": "tsx scripts/cli.ts secrets-upload",
     "test:runtime": "tsx --test test/runtime/*.test.ts",
-    "telegram:chats": "tsx scripts/cli.ts telegram-chats"
+    "telegram:chats": "tsx scripts/cli.ts telegram-chats",
+    "preferences": "tsx scripts/cli.ts preferences"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",

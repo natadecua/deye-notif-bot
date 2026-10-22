@@ -41,3 +41,50 @@ test('real workerd scheduled handler with local KV and entirely synthetic outbou
     assert.equal(response.status, 404);
   } finally { await runtime.dispose(); }
 });
+
+test('workerd honors a muted full alert and renders generic charging profiles from JSON bindings', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const base = Date.now() - 60_000;
+  let latestCalls = 0;
+  const messages: string[] = [];
+  const runtime = new Miniflare(convertV4MiniflareOptions({
+    modules: true, script: bundled.outputFiles[0].text, cf: false,
+    compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: config({
+      notifications: { full: false, discharge: true },
+      ev: { enabled: true, confirmed: true, phases: 1, voltage: 230, minimumAmps: 8,
+        profiles: [
+          { id: 'low', label: 'Low', type: 'amps', amps: 8 },
+          { id: 'medium', label: 'Medium', type: 'amps', amps: 13 },
+          { id: 'max', label: 'MAX', type: 'power', nominalWatts: 7000 },
+        ] },
+    }) },
+    outboundService: async (request: LocalRequest) => {
+      const path = new URL(request.url).pathname;
+      let body: unknown;
+      if (path.endsWith('/account/token')) body = tokenFixture;
+      else if (path.endsWith('/station/latest')) {
+        latestCalls++;
+        body = { ...fixture, batterySOC: 100, dischargePower: 800,
+          lastUpdateTime: new Date(base + latestCalls * 1000).toISOString() };
+      } else if (path.endsWith('/sendMessage')) {
+        messages.push((await request.json() as { text: string }).text); body = { ok: true };
+      } else throw new Error('Unexpected synthetic outbound request');
+      return new LocalResponse(JSON.stringify(body));
+    },
+  }));
+  try {
+    const worker = await runtime.getWorker();
+    await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date() });
+    assert.equal(messages.length, 0);
+    // Wait for local KV's one-write-per-second limit between manual invocations.
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date() });
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /Medium: 13 A.*2\.99 kW/);
+    assert.match(messages[0], /MAX: ~7 kW/);
+    assert.match(messages[0], /nominal estimates/);
+    assert.doesNotMatch(messages[0], /Approximate reduction|32 A/);
+  } finally { await runtime.dispose(); }
+});

@@ -1,4 +1,4 @@
-import { confirm, input, password, select } from '@inquirer/prompts';
+import { checkbox, confirm, input, password, select } from '@inquirer/prompts';
 import { readFile, writeFile, chmod, access, mkdtemp, rm } from 'node:fs/promises';
 import { parseEnv } from 'node:util';
 import { spawnSync } from 'node:child_process';
@@ -13,6 +13,7 @@ import { sendTelegram, validateTelegramSecrets } from '../src/telegram.ts';
 import { jsonPost } from '../src/http.ts';
 import { defaults } from '../src/types.ts';
 import type { Config, Secrets } from '../src/types.ts';
+import { configurePreferences, type InputValidator, type PreferencePrompts } from './preferences.ts';
 
 // Resolve against this repository, even if the command is launched elsewhere.
 const root = fileURLToPath(new NodeURL('../', import.meta.url));
@@ -48,10 +49,18 @@ async function saveSecrets(s: Secrets): Promise<void> {
   await writeFile(secretsPath, content, { mode: 0o600 });
   await chmod(secretsPath, 0o600);
 }
-async function numberInput(message: string, fallback?: number): Promise<number> {
+async function numberInput(message: string, fallback?: number, extra?: InputValidator<number>): Promise<number> {
   return Number(await input({ message, default: fallback === undefined ? undefined : String(fallback),
-    validate: v => v.trim() !== '' && Number.isFinite(Number(v)) || 'Enter a finite number.' }));
+    validate: v => v.trim() !== '' && Number.isFinite(Number(v)) ? extra?.(Number(v)) ?? true : 'Enter a finite number.' }));
 }
+const preferencePrompts: PreferencePrompts = {
+  checklist: (message, choices) => checkbox({ message, choices }),
+  choose: (message, choices, initial) => select({ message, choices, default: initial }),
+  confirm: (message, initial) => confirm({ message, default: initial }),
+  number: numberInput,
+  text: (message, initial, validate) => input({ message, default: initial, validate }),
+  print: message => console.log(message),
+};
 function previewFields(raw: Record<string, unknown>): void {
   // Deliberate allowlist: never print whole upstream bodies, locations or account details.
   console.log(JSON.stringify(Object.fromEntries(['batterySOC', 'dischargePower', 'chargePower',
@@ -114,23 +123,7 @@ async function setup(): Promise<void> {
     throw new SafeError('measurements_not_confirmed');
   }
   c.measurementsConfirmed = true;
-  if (await confirm({ message: 'Customize alert thresholds and freshness limits?', default: false })) {
-    c.fullSoc = await numberInput('Full-charge SOC threshold (%):', c.fullSoc);
-    c.fullRearmSoc = await numberInput('Re-arm full alert strictly below SOC (%):', c.fullRearmSoc);
-    c.dischargeWatts = await numberInput('Discharge must be strictly above (W), for two distinct readings:', c.dischargeWatts);
-    c.dischargeRearmWatts = await numberInput('Re-arm discharge alert strictly below (W):', c.dischargeRearmWatts);
-    c.maxAgeSeconds = await numberInput('Maximum reading age (seconds):', c.maxAgeSeconds);
-    c.maxGapSeconds = await numberInput('Reset confirmation after reading gap (seconds):', c.maxGapSeconds);
-  }
-  c.ev = { enabled: await confirm({ message: 'Enable optional manual EV current-reduction estimates?', default: false }) };
-  if (c.ev.enabled) {
-    c.ev.phases = await select({ message: 'Confirm the EV charger’s actual charging phase configuration (check the installation):',
-      choices: [{ name: 'Single-phase', value: 1 as const }, { name: 'Balanced three-phase', value: 3 as const }] });
-    c.ev.voltage = await numberInput('Confirmed line-to-neutral voltage (V); e.g. 230, NOT 400 for three-phase:');
-    c.ev.minimumAmps = await numberInput('Charger’s documented supported minimum current (A):');
-    c.ev.confirmed = await confirm({ message: 'I verified phase configuration, line-to-neutral voltage, and minimum current. I will check current EV amperage before making any manual adjustment.', default: false });
-    if (!c.ev.confirmed) throw new SafeError('ev_config_unconfirmed');
-  }
+  Object.assign(c, await configurePreferences(c, preferencePrompts));
   if (!s.TELEGRAM_BOT_TOKEN || !await confirm({ message: 'Reuse existing local Telegram settings?', default: true })) {
     s.TELEGRAM_BOT_TOKEN = await password({ message: 'Telegram bot token from @BotFather:', mask: '*' });
     s.TELEGRAM_CHAT_ID = await password({ message: 'Telegram chat ID (numeric, may start with -):', mask: '*' });
@@ -181,6 +174,13 @@ try {
     case 'init': await init(); break;
     case 'setup': await setup(); break;
     case 'preview': await preview(); break;
+    case 'preferences': {
+      const w = await config();
+      w.vars.MONITOR_CONFIG = await configurePreferences(w.vars.MONITOR_CONFIG, preferencePrompts);
+      await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
+      console.log('Saved preferences in ignored wrangler.jsonc. No Deye/Telegram calls or deployment were made. Run npm run deploy to apply them to your existing installation.');
+      break;
+    }
     case 'validate-deploy': await validateDeploy(); break;
     case 'secrets-upload': await uploadSecrets(); break;
     case 'telegram-chats': {

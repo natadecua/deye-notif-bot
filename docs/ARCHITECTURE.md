@@ -6,7 +6,8 @@ One owner's Cron invocation → Deye regional REST API → validated station rea
 
 | File | Responsibility |
 | --- | --- |
-| `src/config.ts` | Validated configuration, regional host allowlist, interpretation identity |
+| `src/config.ts` | Validated configuration, notification switches, regional host allowlist, interpretation identity |
+| `src/profiles.ts` | Validated discrete current/nominal-power profiles and nominal estimates |
 | `src/deye.ts` | Read-only REST allowlist, account login and cached-token renewal |
 | `src/reading.ts` | Strict units, SOC, timestamp and freshness validation |
 | `src/alerts.ts` | Pure transitions, hysteresis, outbox data, message text |
@@ -14,13 +15,14 @@ One owner's Cron invocation → Deye regional REST API → validated station rea
 | `src/telegram.ts` | Plain-text notification transport, success envelope validation |
 | `src/monitor.ts` | One scheduled run, persistence, cooldowns and retry delivery |
 | `src/index.ts` | Cron entry point and a 404 HTTP handler |
-| `scripts/cli.ts` | Laptop-only setup, preview, Telegram tests and secret upload |
+| `scripts/cli.ts` | Laptop-only setup, offline preferences, preview, Telegram tests and secret upload |
+| `scripts/preferences.ts` | Testable notification/profile onboarding with injected prompts |
 
 Runtime uses only standard Workers APIs: `fetch`, Web Crypto, KV and timers. npm dependencies are development/setup/test tooling, not runtime dependencies.
 
 ## Interpretation and alert state
 
-`monitor:v1` holds a versioned, small JSON object: last accepted timestamp, two armed flags, the high-discharge counter, API cooldown and up to two pending events. Invalid persisted state fails closed with `state_invalid`; it is not silently reset. A first deployment starts both flags armed. Changing the station, region, units, timestamp mode, thresholds, freshness limits or EV settings intentionally starts new alert cycles and discards old pending events. Changing a bot/chat alone keeps battery cycles.
+`monitor:v1` holds a versioned, small JSON object: last accepted timestamp, two armed flags, the high-discharge counter, API cooldown and up to two pending events. Invalid persisted state fails closed with `state_invalid`; it is not silently reset. A first deployment starts both flags armed. Changing the station, region, units, timestamp mode, thresholds or freshness limits intentionally starts new alert cycles and discards old pending events. Notification switches, EV hints/profiles and bot/chat changes preserve battery cycles. Initial state identities that appended the EV object are migrated by matching the ten measurement-interpretation fields; no latches, timestamps or confirmation counts are lost solely because hint settings changed.
 
 Accept a reading only if it has numeric SOC in `[0,100]`, numeric non-negative `dischargePower`, a valid supported timestamp no later than the current clock, and age ≤ 600 seconds by default. The station adapter requires both measurements. Convert explicitly confirmed kW to W. Never coerce empty/null values or infer direction from `batteryPower`.
 
@@ -29,6 +31,14 @@ Equal timestamps are duplicates; earlier timestamps are out of order. Neither ad
 Full SOC ≥ threshold queues one full event and disarms it; SOC strictly below rearm threshold arms it. While discharge is armed, each accepted reading strictly above its threshold increments the counter, capped at two; a reading at/below threshold clears it. At two it queues an event, disarms, and clears the counter. Only discharge strictly below the rearm threshold arms it again. Intermediate values cannot cause repeated discharge alerts.
 
 “Sustained” means observed at two distinct sample times, each fresh when evaluated; it is not proof of continuous discharge between samples or of an EV load. Five-minute polling cannot see short transients or detect their cause.
+
+## Notification preferences and charging profiles
+
+`notifications` optionally contains boolean `full` and `discharge` switches. Omission keeps both enabled for compatibility. The state machine tracks cycles even while a category is off, but does not enqueue its events. Disabling a category removes its pending outbox entries; the monitor persists that cancellation even during an API cooldown, using one state write and no API calls. The normal path still uses at most two state checkpoints. Re-enabling does not retrospectively enqueue a latched cycle.
+
+`ev.profiles` optionally contains 1–12 labelled discrete settings, each specified by current in amps **or** nominal power in watts, never both. IDs and labels are unique and bounded; values must respect the confirmed minimum and electrical configuration. Nominal power is a configuration estimate, not a measurement of actual EV demand. A MAX power rating is never converted into an asserted actual current. Profile-based messages list the supported options and require manual checking; they do not automatically select a setting or retain a generic intermediate amperage reduction that the car may not support. If profiles are absent, the original conditional reduction estimate remains available.
+
+The `npm run preferences` wizard performs no network/secret access and writes only local ignored settings. Applying it to a deployed Worker still requires deployment. Interactive tests inject deterministic prompts and synthetic settings; no real installation data or live account access is used.
 
 ## Persistent delivery outbox
 

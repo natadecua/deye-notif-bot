@@ -51,3 +51,26 @@ Final local verification passed: **65 unit/functional tests plus 1 workerd test*
 
 
 The first GitHub publication attempt targeted `natadecua/deye-battery-notify`. The authenticated GitHub integration rejected `createRepository` with `Resource not accessible by integration`; that attempt created neither a repository nor a hosted CI run. The owner subsequently created the empty public repository [`natadecua/deye-notif-bot`](https://github.com/natadecua/deye-notif-bot) and supplied its URL. Push access to that repository was verified, and it is the publication target. The included GitHub Actions workflow runs synthetic validation only; it does not deploy to Cloudflare or test live credentials.
+
+## Follow-up: notification switches and generic charging profiles (2026-10-22)
+
+The next implementation slice adds independent full/discharge notification switches, compatibility with omitted legacy preferences, cancellation of disabled pending alerts (including during API cooldown), and migration of the initial EV-dependent state identity without duplicate full alerts. EV display/profile changes no longer reset battery cycles.
+
+`npm run setup` now includes notification/profile choices. The new `npm run preferences` offline command edits the ignored local config, including an optional Advanced trigger/freshness section, without secret access, provider calls or automatic deployment. Users can enter custom discrete current/nominal-power choices or select an 8 A/13 A/MAX example; every electrical setup and selectable setting needs confirmation. MAX power must be entered rather than assumed, and is never displayed as inferred actual amperage. Profile-based notifications list supported choices with nominal estimates rather than proposing unsupported intermediate settings. Disabling hints retains confirmed profiles for later reuse.
+
+Test-first observations:
+
+- `616eea5`: notification/profile acceptance tests were committed after **18 expected failures and 1 legacy-compatibility pass** against the previous runtime.
+- `93c68c1`: the extracted onboarding interface's baseline behavior was tested before the new flow; **8 expected failures** covered choices, supported profiles, no-EV mode, confirmation and reuse.
+- `71b996c`: the MAX preset test first demonstrated that a contradictory MAX rating below the preset's 13 A setting was accepted; validation was added afterward.
+- `3290b14`: an explicit-input test first failed because MAX had an assumed nominal rating. The default was removed afterward.
+- A later regression test first failed because turning hints off discarded saved profiles; the implementation was changed to retain them.
+
+New workerd coverage checks that JSON configuration bindings mute the full alert while a subsequent discharge notification renders custom nominal profile estimates correctly. Every provider call remains intercepted. The UI-flow tests use injected prompts; no real Deye, Telegram or Cloudflare setup/deployment is exercised. The interactive menu adapter is type checked; the real installation wizard remains untested against live services.
+
+The Worker dry-run bundle is approximately **24.37 KiB** / **7.15 KiB gzip**. No runtime dependencies, paid services, actual EV telemetry, charger control, session tracking, Telegram settings menu, quiet-hours implementation or weather planner were added in this slice. The Free-plan KV write/read bound is unchanged; production CPU is still unmeasured.
+
+
+An additional offline-threshold test first failed before the advanced preference step existed; thresholds and freshness can now be edited without redoing Deye authentication. The final interface keeps the previously verified settings unless the user chooses to change them. Preference edits still require deployment to affect an existing cloud Worker.
+
+Final local verification for this slice passed: **97 unit/functional tests and two workerd runtime tests (99 total)**, strict TypeScript checking, the synthetic mock demonstration and the Wrangler deployment dry run. These results establish local/mock behavior only; the live-integration and production checks listed above remain outstanding.

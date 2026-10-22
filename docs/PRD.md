@@ -1,8 +1,8 @@
 # Product requirements: battery notifications and charging advice
 
-Audit date: **2026-10-22**. Runtime audited at commit `3819d75`.
+Audit date: **2026-10-22**. Original core audited at commit `3819d75`; notification-switch/profile implementation status updated below.
 
-**Current status:** the original notification-only core is implemented and has passed 65 unit/functional tests plus one workerd test and hosted CI. No live Deye/Telegram integration or Cloudflare deployment has been tested. The onboarding and planner described below are an expanded specification, **not implemented functionality**.
+**Current status:** the original notification-only core passed 65 unit/functional tests plus one workerd test and hosted CI. With the laptop notification/profile wizard and offline advanced trigger/freshness settings now implemented, local validation passes **97 unit/functional tests plus two workerd tests**. No live Deye/Telegram integration or Cloudflare deployment has been tested. The Telegram onboarding, session tracking and planner below remain expanded specifications, **not implemented functionality**.
 
 ## 1. Product goal and boundaries
 
@@ -43,13 +43,13 @@ Keep connection secrets separate from non-secret preferences, runtime alert stat
 | Full house battery: default 100%, rearm below 97% | `src/alerts.ts`, transition tests | Actual SOC scale and station data require live confirmation. |
 | Sustained discharge >300 W across two distinct fresh readings; rearm below 100 W | `src/alerts.ts`, freshness/monitor tests | Does not identify what appliance caused discharge. |
 | Conditional EV wording | Discharge messages say “If the EV is charging…” | Preserve this unless an explicitly identified source establishes EV status. |
-| Optional current-reduction calculation | Confirmed voltage/phases/minimum; ceil(W / V) or ceil(W / (3V)) | Current EV amperage is unknown. Current generic estimate does not model the owner's discrete 8/13/MAX choices. |
+| Optional current-reduction calculation | Confirmed voltage/phases/minimum; ceil(W / V) or ceil(W / (3V)) | Current EV amperage is unknown. Custom profiles, including the 8/13/MAX example, are now listed with nominal estimates. Session-based selection is not implemented. |
 | Telegram delivery and test command | `src/telegram.ts`, CLI test/discovery commands | No real bot token/chat delivery was tested. |
 | Five-minute cloud polling, per-owner account, Secrets and KV | Worker entry point, Wrangler template, ignored secret files | Not deployed; CPU/quota estimates are not production measurements. |
 | Token cache/expiry, bounded retries and backoff | REST client and regression tests, including HTTP 408 red/green history | Live regional authorization/schema still untested. |
 | Freshness, distinct timestamps, missing values, long gaps, persistence | Reading/state-machine/monitor tests | Distributed KV and Telegram cannot provide exactly-once delivery. |
 | Guided setup, station selection, units and preview | `npm run setup`, terminal prompts in `scripts/cli.ts` | Technical laptop wizard, not friendly Telegram onboarding. |
-| Configurable full/discharge thresholds, freshness and EV hints | Terminal wizard + ignored local configuration | No independent full/discharge notification switches or in-chat settings. |
+| Configurable full/discharge thresholds, freshness and EV hints | Terminal wizard + ignored local configuration | Independent full/discharge switches are now supported locally; in-chat settings remain planned. |
 | License, contribution guidance, synthetic fixtures, CI and troubleshooting | MIT, CONTRIBUTING.md, AGENTS.md, README.md, tests | Original core is implemented, not a completed live installation. |
 
 Current normalized runtime readings retain only timestamp, house-battery SOC and discharge watts. Raw station preview also shows generation/consumption/charge fields, but the runtime does not retain them for a planner or historical analysis. Optional device discovery exists; an automatic device adapter is not implemented.
@@ -59,10 +59,10 @@ Current normalized runtime readings retain only timestamp, house-battery SOC and
 | Feature | Current status |
 | --- | --- |
 | Full-battery and sustained-discharge messages | Implemented, synthetic validation only |
-| Notification selection and simple/advanced presets | Not implemented |
+| Independent full/discharge notification selection | Implemented in the laptop preferences/setup wizard |
 | Telegram onboarding/settings buttons | Not implemented |
 | Quiet hours, local timezone scheduling and daily recap | Not implemented |
-| 8 A / 13 A / MAX charging profiles | Not implemented |
+| Custom discrete current/power profiles, including 8 A / 13 A / MAX | Implemented for setup and message display; MAX power is explicitly entered |
 | Manual charging-session acknowledgement and expiry | Not implemented |
 | Confirmed automatic EV charging detection | No data source established; not implemented |
 | “Good time to start”, “reduce”, “pause” and “resume” recommendations | Not implemented |
@@ -202,7 +202,7 @@ Telegram onboarding requires a new authenticated inbound webhook, separate from 
 
 ## 9. TDD acceptance work, in order
 
-Write and observe the failure of each behavior test before implementing it. These are proposed acceptance cases, not passing tests already present in the repository.
+Write and observe the failure of each behavior test before implementing it. These are the milestone acceptance requirements. The implemented notification switches, legacy-state migration and laptop profile wizard now have tests; Telegram interaction, session, quiet-hours and planner cases remain future work.
 
 **Milestone 1: notification preferences and onboarding**
 
@@ -238,7 +238,7 @@ Write and observe the failure of each behavior test before implementing it. Thes
 
 Confirm electrical phases and voltage; exact EV/charger model and any existing free supported read-only API; solar installation location/timezone, array kWp and inverter AC limit; usable house-battery capacity, desired reserve/evening target and charging priority; the EV's availability window, energy to add and departure deadline. These are onboarding inputs, not assumptions to hide behind defaults.
 
-No generic 09:00–16:00 window is called optimal without these inputs and validation. The next implementation milestone is the notification/profile/session onboarding and live advice, followed by optional history/weather planning.
+No generic 09:00–16:00 window is called optimal without these inputs and validation. Notification selection and profile setup/display are implemented locally. The next implementation milestone is Telegram/session onboarding and live advice, followed by optional history/weather planning.
 
 See [the proposed seamless setup flow](ONBOARDING.md) for Cloudflare provisioning and Telegram pairing.
 
@@ -248,3 +248,17 @@ See [the proposed seamless setup flow](ONBOARDING.md) for Cloudflare provisionin
 - [Open-Meteo forecast documentation](https://open-meteo.com/en/docs): irradiance fields and orientation parameters; not a turnkey site-specific PV forecast.
 - [Open-Meteo pricing/usage terms](https://open-meteo.com/en/pricing): non-commercial free-service eligibility, limits and attribution.
 - [Cloudflare D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) and [limits](https://developers.cloudflare.com/d1/platform/limits/): available Free-plan resources; no deployment/usage measurements were performed.
+
+## Recommended additions after configurable onboarding
+
+Prioritize features that explain and qualify the advice before adding more predictions:
+
+1. **Why this notification?** Show the triggering condition, the time of the underlying reading, whether EV status is user-confirmed/measured/unknown, and a short reason for the suggestion. Do not overwhelm the default message; offer details on demand once authenticated Telegram interactions exist.
+2. **Data stale / data restored.** One informational notice when Deye data becomes untrustworthy, and one recovery notice after valid fresh readings return. This is an API/data-health status, never a claim that the grid is off or the EV stopped. Do not claim the Worker can announce its own complete outage through the same failed runtime.
+3. **Quiet hours and snooze.** Reduce routine interruptions while continuing cycle tracking. Before sending any delayed charging advice, re-check fresh data and discard expired suggestions.
+4. **Departure readiness.** Warn early if the requested energy appears infeasible in the available window, and explain grid fallback under the chosen policy. Keep estimated charging completion distinct from measured car SOC/energy.
+5. **House-battery reserve reminder.** Let the user protect their chosen evening reserve through manual advice, with conditional EV wording and clear cloud latency. This is not automatic equipment protection.
+6. **Useful daily recap.** Summarize observed battery milestones, reported charging sessions and measured versus estimated energy separately. Add forecast-accuracy feedback only after history and real validation are available.
+7. **Portable configuration and safe diagnostics.** Export non-secret preferences and a sanitized status report for troubleshooting/migration. Do not export authentication secrets or raw sensitive request URLs.
+
+These are recommendations and future acceptance work, not additional features claimed to be implemented by the preference/profile slice.

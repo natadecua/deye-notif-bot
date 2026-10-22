@@ -54,7 +54,7 @@ test('custom profiles support another charger without brand-specific assumptions
 });
 test('a user without an EV only sees notification choices and no electrical questions', async () => {
   const original = config();
-  const h = prompts([['full'], false]);
+  const h = prompts([['full'], false, false]);
   const updated = await configurePreferences(original, h.p);
   assert.deepEqual(updated.notifications, { full: true, discharge: false });
   assert.deepEqual(updated.ev, { enabled: false });
@@ -65,14 +65,14 @@ test('a user without an EV only sees notification choices and no electrical ques
 test('electrical/profile confirmation is required and cancellation leaves the source config unchanged', async () => {
   const original = config();
   const before = structuredClone(original);
-  const h = prompts([['full', 'discharge'], true, '1', 230, 8, '8-13-max', 7000, false]);
+  const h = prompts([['full', 'discharge'], false, true, '1', 230, 8, '8-13-max', 7000, false]);
   await assert.rejects(configurePreferences(original, h.p), /ev_config_unconfirmed/);
   assert.deepEqual(original, before);
 });
 test('confirmed electrical settings and profiles can be reused when changing notifications', async () => {
   const original = config({ ev: { ...electrical,
     profiles: [{ id: 'low', label: 'Low', type: 'amps', amps: 8 }] } });
-  const h = prompts([['discharge'], true, true, 'keep', true]);
+  const h = prompts([['discharge'], false, true, true, 'keep', true]);
   const updated = await configurePreferences(original, h.p);
   assert.deepEqual(updated.notifications, { full: false, discharge: true });
   assert.deepEqual(updated.ev.profiles, original.ev.profiles);
@@ -89,7 +89,7 @@ test('MAX in the 8/13/MAX preset cannot be rated below its 13 A setting', async 
 });
 test('complete new-EV onboarding saves only explicitly confirmed profiles and preferences', async () => {
   const original = config();
-  const h = prompts([['full', 'discharge'], true, '1', 230, 8, '8-13-max', 7000, true]);
+  const h = prompts([['full', 'discharge'], false, true, '1', 230, 8, '8-13-max', 7000, true]);
   const updated = await configurePreferences(original, h.p);
   assert.deepEqual(updated.notifications, { full: true, discharge: true });
   assert.equal(updated.ev.confirmed, true);
@@ -103,4 +103,23 @@ test('MAX power must be entered explicitly instead of assuming a rating for anot
   h.p.number = async (_message, initial) => { initialValue = initial; return 7000; };
   await configureChargingProfiles(electrical, h.p);
   assert.equal(initialValue, undefined);
+});
+test('turning EV hints off preserves confirmed electrical settings and custom profiles for later reuse', async () => {
+  const original = config({ ev: { ...electrical,
+    profiles: [{ id: 'eco', label: 'Eco', type: 'amps', amps: 8 }] } });
+  const h = prompts([['full'], false, false]);
+  const updated = await configurePreferences(original, h.p);
+  assert.equal(updated.ev.enabled, false);
+  assert.equal(updated.ev.confirmed, true);
+  assert.deepEqual(updated.ev.profiles, original.ev.profiles);
+  assert.equal(updated.ev.voltage, 230);
+});
+test('offline preferences can edit alert thresholds and freshness limits without credentials', async () => {
+  const h = prompts([['full', 'discharge'], true, 95, 92, 500, 150, 600, 720, false]);
+  const updated = await configurePreferences(config(), h.p);
+  assert.equal(updated.fullSoc, 95);
+  assert.equal(updated.fullRearmSoc, 92);
+  assert.equal(updated.dischargeWatts, 500);
+  assert.equal(updated.dischargeRearmWatts, 150);
+  assert.equal(h.remaining.length, 0);
 });

@@ -8,14 +8,14 @@ Each installation runs in its owner's Cloudflare account and calls Deye and Tele
 
 **Implementation status:** implemented and validated with synthetic local tests, a local Workers runtime, and a Wrangler deployment dry run. No real Deye credentials or Telegram bot were supplied. Live account access, actual installation units/time formats, live messages, production CPU usage, and cloud scheduling have **not** been validated by this project session. See [validation notes](docs/VALIDATION.md).
 
-See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [seamless Cloudflare/Telegram setup proposal](docs/ONBOARDING.md) for the exact implemented feature checklist and the expanded roadmap. Telegram settings menus, Deepal 8 A/13 A/MAX session tracking, pause recommendations and weather/history planning are **not implemented yet**. The current setup is the laptop wizard described below.
+See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [seamless Cloudflare/Telegram setup proposal](docs/ONBOARDING.md) for the exact implemented feature checklist and the expanded roadmap. Independent notification switches and configurable charging profiles are implemented in the laptop wizard. Telegram settings menus, charging-session tracking, automatic profile selection, pause recommendations and weather/history planning are **not implemented yet**. The current setup is the laptop wizard described below.
 
 ## Alerts
 
 - Full charge: SOC **≥ 100%** by default; once per cycle, rearmed strictly **below 97%**. The threshold is configurable. Starting the monitor while already full produces a full alert.
 - Sustained discharge: **> 300 W** in **two distinct, fresh, consecutive readings**; rearmed strictly **below 100 W**. Repeated polls of one timestamp never count as extra readings. Readings at or below 300 W break confirmation.
 - Discharge messages say **“If the EV is charging…”**. Inverter telemetry cannot identify the EV as the cause.
-- Optional estimate: `ceil(discharge W / voltage)` for single-phase, or `ceil(discharge W / (3 × line-to-neutral voltage))` for confirmed balanced three-phase. Setup requires confirmed phases, voltage and the charger's supported minimum. It never infers present EV amperage or recommends a target setting. Check present current yourself; reduce only if the resulting setting remains at or above the documented minimum. Otherwise consider pausing manually.
+- Optional estimate when no fixed profiles are configured: `ceil(discharge W / voltage)` for single-phase, or `ceil(discharge W / (3 × line-to-neutral voltage))` for confirmed balanced three-phase. Setup requires confirmed phases, voltage and the charger's supported minimum. It never infers present EV amperage or recommends a target setting. Check present current yourself; reduce only if the resulting setting remains at or above the documented minimum. Otherwise consider pausing manually.
 
 Example:
 
@@ -23,7 +23,7 @@ Example:
 > If the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.<br>
 > Approximate reduction: 4 A (single-phase) at 230 V line-to-neutral. Current EV amperage is unknown: check it first.
 
-The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp.
+The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp. If you configure discrete charging profiles, the message instead lists only those supported choices with nominal power estimates; it does not propose an unsupported intermediate reduction or infer MAX amperage. No profile is selected automatically.
 
 ## Local setup
 
@@ -65,6 +65,24 @@ npm run preview
 ```
 
 Preview does not alter alert state or send notifications. Tokens for setup/preview are kept in process memory only; the deployed monitor caches them in KV. For manual secret configuration, see [.dev.vars.example](.dev.vars.example); the password hash is also a secret. Environment variables with the listed names override the local file for CLI commands.
+
+## Customize notifications and charging profiles
+
+Setup now asks which updates you want: **battery full**, **battery supplying power**, both, or neither. The original thresholds remain configurable. Disabled categories still track battery cycles, so turning a category back on does not send a stale alert for a cycle that already happened. Disabling one also cancels its pending retry. Both categories default on for older installations.
+
+To change these preferences without re-entering credentials:
+
+```sh
+npm run preferences
+```
+
+Its Advanced section also edits SOC/discharge triggers, rearm thresholds and reading-freshness limits. This offline wizard edits only your ignored `wrangler.jsonc`; it does not read credentials, contact Deye/Telegram, or deploy. For an existing, configured installation, apply the saved settings with `npm run deploy`. For a fresh checkout, complete `npm run setup` and the deployment steps first.
+
+EV hints are optional. Users without an EV can skip the entire electrical/profile section. EV users can keep the original approximate-reduction hint, enter **up to 12 custom supported settings**, or choose an editable **8 A / 13 A / MAX** example. Every installation must confirm phases, line-to-neutral voltage, minimum current and actual selectable settings. MAX's nominal/rated power must be entered explicitly; no universal 7 kW rating or actual MAX amperage is assumed. If hints are turned off, previously confirmed profiles remain saved for later reuse.
+
+For a **confirmed 230 V single-phase example only**, 8 A is approximately 1.84 kW and 13 A approximately 2.99 kW. A user-entered 7,000 W MAX rating is shown as a nominal estimate with unspecified amperage. Three-phase calculations use three times the confirmed line-to-neutral voltage. These are neither measured EV power nor automatic charging detection.
+
+Profile changes and notification switches preserve battery alert cycles, including migration of the initial implementation's state identity. Changes to the station, units, thresholds or freshness interpretation still start new cycles. There is no Telegram settings menu or manual-session button yet; preferences are currently changed on the laptop and redeployed.
 
 ## Telegram setup
 
@@ -138,6 +156,8 @@ Full behavior and failure tradeoffs are in [architecture notes](docs/ARCHITECTUR
 | `deye_api_rejected` / `deye_http_rejected` | Check station permission/access and Deye's current schema/quota in its portal. Upstream messages are intentionally omitted from logs. |
 | `timestamp_ambiguous` / `timestamp_invalid` | Confirm actual timestamp format and timezone; offset-less strings are unsupported. See API notes. |
 | `reading_stale` / `reading_future` | Check logger connectivity, selected timestamp mode and clock/UTC interpretation. Polls continue at five-minute intervals. Do not increase age limits to hide incorrect timezone interpretation. |
+| `notification_preferences_invalid` | The optional `notifications` object must include boolean `full` and `discharge` fields. Use `npm run preferences` to configure it. |
+| `charging_profiles_invalid` | Verify supported settings, unique names, current minimum, nominal power and phase/voltage. An 8/13/MAX preset needs a MAX rating at least as high as its 13 A setting. |
 | `measurement_missing_or_invalid` | Station must return numeric percentage SOC and non-negative discharge. Check units/device-point availability. No guessed zero or signed battery-power fallback is used. |
 | `reading_duplicate` | No new telemetry timestamp yet; this is normal with cached logger/station data. |
 | `reading_out_of_order` | An older server reading was ignored. Wait for a timestamp newer than the last accepted reading. |
@@ -147,7 +167,7 @@ Full behavior and failure tradeoffs are in [architecture notes](docs/ARCHITECTUR
 | `notification_abandoned` | Three attempts failed, or a permanent error occurred; cycle stays latched. Fix cause and run a test. |
 | `state_invalid` | State corruption fails closed. Back up only if necessary, pause Cron, then delete `monitor:v1` from your namespace in Cloudflare's dashboard. This resets cycles and may produce a new alert on restart. |
 | `internal_error` / no Cron output | Check KV binding, namespace/account, quota, Cloudflare CPU errors/metrics and deployed Cron propagation. Never share unsanitized exception traces containing URLs. |
-| Notifications repeat unexpectedly | Check for multiple deployments/local tests or overlapping Cron runs. KV cannot enforce global deduplication. Deleting state or changing measurement/alert/EV config starts new cycles. |
+| Notifications repeat unexpectedly | Check for multiple deployments/local tests or overlapping Cron runs. KV cannot enforce global deduplication. Deleting state or changing station/measurement/alert thresholds starts new cycles; notification switches and EV hints/profiles preserve cycles. |
 
 To pause, remove the Cron in Cloudflare's dashboard, or set `MONITOR_CONFIG.enabled` to `false` locally and deploy with `npx wrangler deploy` (the `npm run deploy` convenience guard requires enabled configuration). Do not delete state simply to pause. Deleting a Cron or deploying changes can take time to propagate. To uninstall, delete the Worker and its dedicated namespace in your account, then revoke the Deye application and Telegram bot credentials if no longer used.
 

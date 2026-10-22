@@ -22,6 +22,7 @@
       "dischargeRearmWatts": 100,
       "maxAgeSeconds": 600,
       "maxGapSeconds": 720,
+      "notifications": { "full": true, "discharge": true },
       "ev": { "enabled": false }
     }
   }

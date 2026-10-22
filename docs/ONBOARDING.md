@@ -1,6 +1,6 @@
 # Proposed seamless setup
 
-**Status: design proposal, not implemented.** The existing `npm run setup` checks Deye, previews/validates readings, collects settings and can send a Telegram test. It does **not** log in to Cloudflare, create KV, upload secrets, deploy, pair a chat automatically or provide Telegram settings menus. The existing README documents those manual deployment steps.
+**Status: automatic cloud setup and Telegram pairing are a design proposal.** The existing `npm run setup` checks Deye, previews/validates readings, collects independently selected notifications and generic charging profiles, and can send a Telegram test. `npm run preferences` now edits those non-secret preferences offline without re-entering credentials. It does **not** log in to Cloudflare, create KV, upload secrets, deploy, pair a chat automatically or provide Telegram settings menus. The existing README documents those manual deployment steps.
 
 This proposal extends [the PRD](PRD.md) while preserving zero-cost per-owner hosting, an open-source repository and notification-only operation.
 

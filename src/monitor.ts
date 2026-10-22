@@ -1,5 +1,5 @@
 import { alertText, decodeState, expirePending, resetAfterGap, transition } from './alerts.ts';
-import { validateConfig } from './config.ts';
+import { notificationEnabled, validateConfig } from './config.ts';
 import { DeyeClient } from './deye.ts';
 import { errorCode, SafeError } from './errors.ts';
 import { normalizeReading } from './reading.ts';
@@ -13,9 +13,15 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   const now = deps.now();
   const events: string[] = [];
+  const pendingBefore = state.pending.length;
+  state.pending = state.pending.filter(a => notificationEnabled(c, a.kind));
+  const cancelledByPreference = state.pending.length !== pendingBefore;
   resetAfterGap(state, c, now);
   expirePending(state, now);
-  if (now < state.apiRetryAt) return ['api_backoff'];
+  if (now < state.apiRetryAt) {
+    if (cancelledByPreference) await env.STATE.put('monitor:v1', JSON.stringify(state));
+    return ['api_backoff'];
+  }
   let eligibleToSend = false;
   try {
     const raw = await new DeyeClient(c, env, env.STATE, deps).latest();

@@ -1,9 +1,18 @@
+export type ChargingProfile = {
+  id: string;
+  label: string;
+} & ({ type: 'amps'; amps: number } | { type: 'power'; nominalWatts: number });
+export interface NotificationPreferences {
+  full: boolean;
+  discharge: boolean;
+}
 export interface EVConfig {
   enabled: boolean;
   confirmed?: boolean;
   phases?: 1 | 3;
   voltage?: number; // Line-to-neutral, also for balanced three-phase.
   minimumAmps?: number;
+  profiles?: ChargingProfile[];
 }
 export interface Config {
   enabled: boolean;
@@ -19,6 +28,8 @@ export interface Config {
   maxAgeSeconds: number;
   maxGapSeconds: number;
   ev: EVConfig;
+  // Omitted in older installations: both notification categories remain enabled.
+  notifications?: NotificationPreferences;
 }
 export interface Secrets {
   DEYE_APP_ID: string;

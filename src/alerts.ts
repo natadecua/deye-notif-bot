@@ -1,6 +1,7 @@
 import type { Alert, Config, Reading, State } from './types.ts';
-import { stateIdentity } from './config.ts';
+import { notificationEnabled, stateIdentity } from './config.ts';
 import { SafeError } from './errors.ts';
+import { profileSummary } from './profiles.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
 export function initialState(c: Config): State {
@@ -25,7 +26,19 @@ export function decodeState(value: string | null, c: Config): State {
         !Number.isInteger(a.attempts) || a.attempts < 0 || a.attempts > 3)) {
     throw new SafeError('state_invalid');
   }
-  return s.identity === stateIdentity(c) ? s : initialState(c);
+  const identity = stateIdentity(c);
+  if (s.identity === identity) return s;
+  // Before profile/preferences support the identity appended the EV object.
+  // Migrate that metadata without rearming otherwise identical battery cycles.
+  try {
+    const legacy = JSON.parse(s.identity);
+    if (Array.isArray(legacy) && legacy.length === 11 &&
+        JSON.stringify(legacy.slice(0, 10)) === identity) {
+      s.identity = identity;
+      return s;
+    }
+  } catch { /* An unrecognized identity starts a new measurement interpretation. */ }
+  return initialState(c);
 }
 export function expirePending(s: State, now: number): void {
   s.pending = s.pending.filter(a => now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3);
@@ -40,7 +53,9 @@ export function transition(s: State, r: Reading, c: Config, now: number): 'accep
   if (s.lastReadingAt === undefined || r.at - s.lastReadingAt > c.maxGapSeconds * 1000) s.highCount = 0;
   s.lastReadingAt = r.at;
   const enqueue = (kind: Alert['kind']) => {
-    s.pending.push({ id: `${kind}:${r.at}`, kind, reading: r, createdAt: now, attempts: 0, nextAttemptAt: now });
+    if (notificationEnabled(c, kind)) {
+      s.pending.push({ id: `${kind}:${r.at}`, kind, reading: r, createdAt: now, attempts: 0, nextAttemptAt: now });
+    }
   };
   if (r.soc < c.fullRearmSoc) {
     s.fullArmed = true;
@@ -71,8 +86,12 @@ export function alertText(a: Alert, c: Config): string {
   }
   let text = `House battery is supplying sustained demand: ${Math.round(a.reading.dischargeWatts)} W. Discharge exceeded ${c.dischargeWatts} W in two distinct readings.\nIf the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.`;
   if (c.ev.enabled && c.ev.confirmed && c.ev.phases && c.ev.voltage && c.ev.minimumAmps) {
-    const amps = Math.ceil(a.reading.dischargeWatts / (c.ev.phases * c.ev.voltage));
-    text += `\nApproximate reduction: ${amps} A${c.ev.phases === 3 ? ' per phase (balanced three-phase)' : ' (single-phase)'} at ${c.ev.voltage} V line-to-neutral. Current EV amperage is unknown: check it first. Only reduce if the resulting setting stays at or above your charger's supported minimum of ${c.ev.minimumAmps} A; otherwise pause charging manually if appropriate. No target current is calculated.`;
+    if (c.ev.profiles?.length) {
+      text += `\nYour configured settings: ${c.ev.profiles.map(p => profileSummary(p, c.ev)).join('; ')}. Power values are nominal estimates, not measured EV demand. Current EV amperage is unknown: check the car first. Use only a supported lower setting if appropriate, staying at or above the configured minimum of ${c.ev.minimumAmps} A; otherwise pause manually if appropriate. No setting is selected automatically.`;
+    } else {
+      const amps = Math.ceil(a.reading.dischargeWatts / (c.ev.phases * c.ev.voltage));
+      text += `\nApproximate reduction: ${amps} A${c.ev.phases === 3 ? ' per phase (balanced three-phase)' : ' (single-phase)'} at ${c.ev.voltage} V line-to-neutral. Current EV amperage is unknown: check it first. Only reduce if the resulting setting stays at or above your charger's supported minimum of ${c.ev.minimumAmps} A; otherwise pause charging manually if appropriate. No target current is calculated.`;
+    }
   }
   return `${text}\nReading: ${when}. Cloud data may be delayed.`;
 }

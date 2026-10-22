@@ -4,7 +4,7 @@ import { alertText, decodeState, initialState, transition } from '../src/alerts.
 import { stateIdentity, validateConfig } from '../src/config.ts';
 import { runMonitor } from '../src/monitor.ts';
 import { BASE_TIME, config, harness, json } from './helpers.ts';
-import type { Config, State } from '../src/types.ts';
+import type { Config, EVConfig, State } from '../src/types.ts';
 
 const exampleEV = {
   enabled: true, confirmed: true, phases: 1 as const, voltage: 230, minimumAmps: 8,
@@ -13,7 +13,7 @@ const exampleEV = {
     { id: '13a', label: '13 A', type: 'amps', amps: 13 },
     { id: 'max', label: 'MAX', type: 'power', nominalWatts: 7000 },
   ],
-};
+} satisfies EVConfig;
 function withPreferences(full: boolean, discharge: boolean): Config {
   return config({ notifications: { full, discharge } } as Partial<Config>);
 }
