@@ -123,3 +123,15 @@ test('redirect responses are rejected without following a secret-bearing request
   assert.equal(h.calls.length, 1);
   assert.equal(h.calls[0].init?.redirect, 'manual');
 });
+test('Deye HTTP 408 timeout retries a read-only request with bounded backoff', async () => {
+  const h = harness(); let timedOut = false;
+  h.hook(url => {
+    if (url.includes('/station/latest') && !timedOut) {
+      timedOut = true;
+      return json({}, 408);
+    }
+  });
+  await new DeyeClient(config(), syntheticSecrets, h.kv, h.deps).latest();
+  assert.equal(h.calls.filter(c => c.url.includes('/station/latest')).length, 2);
+  assert.deepEqual(h.sleeps, [500]);
+});

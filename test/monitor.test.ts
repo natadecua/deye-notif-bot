@@ -137,3 +137,22 @@ test('KV checkpoints respect the one-write-per-second same-key limit', async () 
   assert.equal(times.length, 2);
   assert(times[1] - times[0] >= 1100);
 });
+test('Telegram HTTP 408 timeout keeps the alert pending for a bounded later retry', async () => {
+  const h = harness(); let timedOut = false;
+  h.hook(url => {
+    if (url.includes('/sendMessage') && !timedOut) {
+      timedOut = true;
+      return json({}, 408);
+    }
+  });
+  h.reading(100, 0);
+  const events = await runMonitor(h.env, h.deps);
+  assert.equal(state(h).pending.length, 1);
+  assert.equal(state(h).pending[0].attempts, 1);
+  assert(!events.includes('notification_abandoned'));
+  assert.equal(h.sent.length, 0);
+  h.advance(); h.reading(100, 0);
+  await runMonitor(h.env, h.deps);
+  assert.equal(h.sent.length, 1);
+  assert.equal(state(h).pending.length, 0);
+});
