@@ -5,7 +5,7 @@ import { errorCode, SafeError } from './errors.ts';
 import { normalizeReading } from './reading.ts';
 import { sendTelegram, validateTelegramSecrets } from './telegram.ts';
 import { defaults, type Dependencies, type Env } from './types.ts';
-import { BOT_KEY, chargingSummary, decodeBotState } from './bot-state.ts';
+import { BOT_KEY, activeChargingSession, decodeBotState } from './bot-state.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -67,7 +67,9 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     changed = true;
     try {
       const confirmCharging = c.telegram?.enabled && c.ev.enabled && a.kind === 'discharge';
-      const text = alertText(a, c) + (confirmCharging ? `\n\n${chargingSummary(bot, c, deps.now())}\nAre you charging an EV?` : '');
+      const sentAt = deps.now();
+      const prompt = activeChargingSession(bot, sentAt) ? 'Update your charging report:' : 'Are you charging an EV?';
+      const text = alertText(a, c, { bot, now: sentAt }) + (confirmCharging ? `\n\n${prompt}` : '');
       await sendTelegram(env, text, deps, confirmCharging ? { inline_keyboard: [[
         { text: "Yes, I'm charging", callback_data: `charging:yes:${a.reading.at}` },
         { text: "No, I'm not", callback_data: `charging:no:${a.reading.at}` },

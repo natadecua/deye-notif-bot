@@ -16,19 +16,22 @@ The laptop wizard supports independent notification switches and configurable ch
 
 - Full charge: SOC **≥ 100%** by default; once per cycle, rearmed strictly **below 97%**. The threshold is configurable. Starting the monitor while already full produces a full alert.
 - Sustained discharge: **> 300 W** in **two distinct, fresh, consecutive readings**; rearmed strictly **below 100 W**. Repeated polls of one timestamp never count as extra readings. Readings at or below 300 W break confirmation.
-- Discharge messages say **“If the EV is charging…”**. Inverter telemetry cannot identify the EV as the cause.
+- Discharge messages label **battery discharge** and an **unknown load breakdown**. This reading does not measure total home use or separate appliances from EV charging. Optional EV hints stay conditional; a current manual “not charging” report suppresses EV reduction advice. Installations with EV hints off receive battery-only alerts.
 - Optional estimate when no fixed profiles are configured: `ceil(discharge W / voltage)` for single-phase, or `ceil(discharge W / (3 × line-to-neutral voltage))` for confirmed balanced three-phase. Setup requires confirmed phases, voltage and the charger's supported minimum. It never infers present EV amperage or recommends a target setting. Check present current yourself; reduce only if the resulting setting remains at or above the documented minimum. Otherwise consider pausing manually.
 
 Messages use clear event titles, separate charge/power lines and readable UTC source times. A charge target below 100% is labelled “charge target reached”. Example (synthetic):
 
 > ⚡ House battery supplying power<br>
-> Discharge: 800 W<br>
+> Battery discharge: 800 W<br>
 > Charge: 90%<br>
 > Above 300 W in two distinct readings.<br>
+> Load breakdown: unknown. Battery output alone does not identify individual loads or total home consumption.<br>
+> Household / EV split: unknown.<br>
+> EV charging: unknown<br>
 > If the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.<br>
 > Approximate reduction: 4 A (single-phase) at 230 V line-to-neutral. Current EV amperage is unknown: check it first.
 
-The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp. If you configure discrete charging profiles, the message instead lists only those supported choices with nominal power estimates; it does not propose an unsupported intermediate reduction or infer MAX amperage. No profile is selected automatically.
+The example has EV hints enabled. The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp. A valid manual charging report replaces “EV charging: unknown” with the owner's report and expiry; the household/EV power split remains unknown. A “not charging” report hides reduction/profile advice until the report expires or changes. If you configure discrete charging profiles, the message instead lists only those supported choices with nominal power estimates; it does not propose an unsupported intermediate reduction or infer MAX amperage. No profile is selected automatically.
 
 ## Local setup
 
@@ -86,6 +89,8 @@ Its Advanced section also edits SOC/discharge triggers, rearm thresholds and rea
 EV hints are optional. Users without an EV can skip the entire electrical/profile section. EV users can keep the original approximate-reduction hint, enter **up to 12 custom supported settings**, or choose an editable **8 A / 13 A / MAX** example. Every installation must confirm phases, line-to-neutral voltage, minimum current and actual selectable settings. MAX's nominal/rated power must be entered explicitly; no universal 7 kW rating or actual MAX amperage is assumed. If hints are turned off, previously confirmed profiles remain saved for later reuse.
 
 For a **confirmed 230 V single-phase example only**, 8 A is approximately 1.84 kW and 13 A approximately 2.99 kW. A user-entered 7,000 W MAX rating is shown as a nominal estimate with unspecified amperage. Three-phase calculations use three times the confirmed line-to-neutral voltage. These are neither measured EV power nor automatic charging detection.
+
+The configured choices appear on separate reference lines in `/status` and applicable discharge advice. Battery discharge below a profile's nominal power does not establish “house only”: solar/grid may supply part of an EV's demand. Charging status remains unknown until manually reported, and reports expire after six hours.
 
 Profile changes and notification switches preserve battery alert cycles, including migration of the initial implementation's state identity. Changes to the station, units, thresholds or freshness interpretation still start new cycles. Optional Telegram settings apply on subsequent polls without redeployment; `/settings reset` restores the deployed preferences. See [command setup and limits](docs/TELEGRAM-BOT.md).
 

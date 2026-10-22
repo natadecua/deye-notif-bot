@@ -103,15 +103,16 @@ test('custom full thresholds say target reached rather than claiming a full batt
   assert.doesNotMatch(text, /battery full/);
 });
 
-test('discharge alert separates measured power, charge, confirmation and conditional advice', () => {
+test('house-only discharge alert distinguishes battery output from appliance demand without EV advice', () => {
   const s = initialState(c);
-  apply(s, 90, 800); apply(s, 90, 800, 5);
+  apply(s, 90, 315); apply(s, 90, 315, 5);
   assert.equal(alertText(s.pending[0], c), [
-    '⚡ House battery supplying power', '', 'Discharge: 800 W', 'Charge: 90%',
+    '⚡ House battery supplying power', '', 'Battery discharge: 315 W', 'Charge: 90%',
     'Above 300 W in two distinct readings.', '',
-    'If the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.', '',
+    'Load breakdown: unknown. Battery output alone does not identify individual loads or total home consumption.', '',
     'Reading: 21 Oct 2026, 12:05:00 UTC', 'Deye Cloud data may be delayed.',
   ].join('\n'));
+  assert.doesNotMatch(alertText(s.pending[0], c), /EV|charging current|reduction|configured settings/);
 });
 
 test('reading display keeps the UTC date across a year boundary and drops ISO milliseconds', () => {

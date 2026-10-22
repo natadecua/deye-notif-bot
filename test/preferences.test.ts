@@ -122,6 +122,8 @@ test('profile-based messages show nominal options, not unsupported intermediate 
   assert.match(message, /13 A.*2\.99 kW/);
   assert.match(message, /MAX.*7 kW/);
   assert.match(message, /nominal estimates/);
+  assert.match(message, /Your configured settings \(nominal estimates\):\n/);
+  assert.match(message, /Battery discharge does not measure EV power; solar or grid may supply part of charging demand/);
   assert.match(message, /amperage is unknown/);
   assert.doesNotMatch(message, /Approximate reduction|32 A|30\.4 A/);
 });

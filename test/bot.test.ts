@@ -53,6 +53,8 @@ test('/status uses cached telemetry, labels its age and never polls Deye or chan
   assert.match(h.sent[0], /82%/); assert.match(h.sent[0], /800 W/);
   assert.match(h.sent[0], /Reading:/); assert.match(h.sent[0], /age/i);
   assert.match(h.sent[0], /EV charging: unknown/i);
+  assert.match(h.sent[0], /Battery discharge: 800 W/);
+  assert.match(h.sent[0], /Load breakdown: unknown/);
   assert.equal(h.kv.data.get('monitor:v1'), before);
   assert(h.calls.every(c => c.url.endsWith('/sendMessage')));
 });
@@ -62,6 +64,32 @@ test('/status explains absent and stale readings instead of presenting them as l
   const stale = setup(); stale.reading(80, 0); await runMonitor(stale.env, stale.deps);
   stale.advance(700_000); await stale.send(stale.message('/status'));
   assert.match(stale.sent[0], /stale/i);
+});
+
+test('/status shows configured 8 A, 13 A and MAX reference levels without classifying a 315 W load as house-only', async () => {
+  // Synthetic, explicitly confirmed 230 V single-phase profiles; MAX is owner-entered.
+  const h = setup();
+  const c = config({ telegram: { enabled: true }, ev: { enabled: true, confirmed: true,
+    phases: 1, voltage: 230, minimumAmps: 6, profiles: [
+      { id: '8a', label: '8 A', type: 'amps', amps: 8 },
+      { id: '13a', label: '13 A', type: 'amps', amps: 13 },
+      { id: 'max', label: 'MAX', type: 'power', nominalWatts: 7000 },
+    ] } });
+  h.env.MONITOR_CONFIG = c;
+  h.reading(80, 315); await runMonitor(h.env, h.deps);
+  const before = h.kv.data.get('monitor:v1'); h.calls.length = 0;
+  await h.send(h.message('/status'));
+  const text = h.sent[0];
+  assert.match(text, /Your configured settings \(nominal estimates\):\n8 A \(~1\.84 kW\)\n13 A \(~2\.99 kW\)\nMAX: ~7 kW/);
+  assert.match(text, /Battery discharge does not measure EV power; solar or grid may supply part of charging demand/);
+  assert.match(text, /Battery discharge: 315 W/);
+  assert.match(text, /EV charging: unknown/);
+  assert.doesNotMatch(text, /normal house|house.only|EV detected|32 A|30\.4 A/);
+  assert.equal(h.kv.data.get('monitor:v1'), before);
+  assert(h.calls.every(c => c.url.endsWith('/sendMessage')));
+  h.env.MONITOR_CONFIG = { ...c, ev: { ...c.ev, enabled: false } };
+  h.advance(3000); await h.send(h.message('/status', 2));
+  assert.doesNotMatch(h.sent.at(-1)!, /Your configured settings|1\.84 kW|7 kW/);
 });
 test('/charging records an expiring manual confirmation, not measured EV status', async () => {
   const h = setup(); await h.send(h.message('/charging'));
@@ -151,9 +179,47 @@ test('enabled discharge prompts offer yes/no buttons without asserting an EV cau
   const call = h.calls.find(c => c.url.endsWith('/sendMessage'))!;
   const payload = JSON.parse(String(call.init?.body));
   assert.match(payload.text, /If the EV is charging/);
+  assert.match(payload.text, /Household \/ EV split: unknown/);
+  assert.match(payload.text, /EV charging: unknown/);
+  assert.equal(payload.text.match(/EV charging:/g).length, 1);
   assert.equal(payload.reply_markup.inline_keyboard[0][0].text, "Yes, I'm charging");
   assert.match(payload.reply_markup.inline_keyboard[0][0].callback_data, /^charging:yes:/);
 });
+
+for (const report of ['charging', 'not_charging', 'expired', 'future'] as const) {
+  test(`discharge alert keeps ${report} manual evidence separate from the unknown household/EV split`, async () => {
+    const h = setup();
+    h.env.MONITOR_CONFIG = config({ telegram: { enabled: true }, ev: { enabled: true, confirmed: true,
+      phases: 1, voltage: 230, minimumAmps: 6,
+      profiles: [{ id: 'low', label: 'Low', type: 'amps', amps: 8 }] } });
+    await h.send(h.message(report === 'not_charging' ? '/stopped' : '/charging'));
+    if (report === 'expired') h.advance(6 * 3600_000);
+    if (report === 'future') h.advance(-60_000);
+    h.sent.length = 0;
+    h.reading(80, 315); await runMonitor(h.env, h.deps);
+    h.advance(10_000); h.reading(80, 315); await runMonitor(h.env, h.deps);
+    assert.equal(h.sent.length, 1);
+    const text = h.sent[0];
+    assert.match(text, /Battery discharge: 315 W/);
+    assert.match(text, /Load breakdown: unknown/);
+    assert.match(text, /Household \/ EV split: unknown/);
+    assert.equal(text.match(/EV charging:/g)!.length, 1);
+    if (report === 'charging' || report === 'not_charging') {
+      assert.match(text, new RegExp(`you confirmed ${report === 'charging' ? 'charging' : 'not charging'}`));
+      assert.match(text, /Source: manual confirmation; expires/);
+    } else {
+      assert.match(text, /EV charging: unknown/);
+      assert.doesNotMatch(text, /you confirmed/);
+    }
+    if (report === 'not_charging') {
+      assert.doesNotMatch(text, /consider reducing|Approximate reduction|Your configured settings|pause charging|check the car/);
+      assert.match(text, /Update your charging report/);
+    } else {
+      assert.match(text, /If the EV is charging/);
+      assert.match(text, /Your configured settings/);
+    }
+  });
+}
 test('Telegram opt-in configuration must be explicitly valid', () => {
   for (const telegram of [null, [], {}, { enabled: 'true' }]) {
     assert.throws(() => validateConfig({ ...config(), telegram }), /telegram_preferences_invalid/);

@@ -38,6 +38,8 @@ Full SOC ≥ threshold queues one full event and disarms it; SOC strictly below 
 
 “Sustained” means observed at two distinct sample times, each fresh when evaluated; it is not proof of continuous discharge between samples or of an EV load. Five-minute polling cannot see short transients or detect their cause.
 
+Messages distinguish measured battery discharge from an unknown load breakdown. The current adapter cannot derive total home use or a household/EV power split. EV-enabled alerts show manual charging evidence before conditional advice; an active “not charging” report suppresses EV reduction/profile advice. Expired/future reports are unknown. Rendering uses the existing bot-state snapshot and send-time clock, with no extra reads/writes or upstream requests. EV-disabled alerts omit EV advice entirely. Manual evidence never changes battery transitions or identifies their cause.
+
 ## Notification preferences and charging profiles
 
 `notifications` optionally contains boolean `full` and `discharge` switches. Omission keeps both enabled for compatibility. The state machine tracks cycles even while a category is off, but does not enqueue its events. Disabling a category removes its pending outbox entries; the monitor persists that cancellation even during an API cooldown, using one state write and no API calls. The normal path still uses at most two state checkpoints. Re-enabling does not retrospectively enqueue a latched cycle.

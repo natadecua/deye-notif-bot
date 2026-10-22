@@ -29,6 +29,8 @@ Remaining installation validation: owner-configured Cloudflare/GitHub secrets an
 
 Completed follow-up: Telegram setup failures now include fixed, actionable recovery steps for the owner/URL/secret flow, an existing webhook owned by another integration, and partial webhook/menu success. Unknown error text is never reflected into these hints. The next setup iteration should exercise the complete synthetic prompt journey and credential-recovery behavior, before adding unrelated features.
 
+Owner-requested alert clarification: battery discharge and unknown load breakdown are now labelled separately from manual EV charging reports. Active “not charging” reports hide EV reduction/profile advice; disabled EV hints produce battery-only alerts. Confirmation does not measure an EV's share of power. Existing setup blockers and the next synthetic setup walkthrough remain unchanged; direct detection still needs a verified read-only source.
+
 ## Next improvements, in priority order
 
 1. **Owner setup walkthrough and recovery.** Exercise a fresh install, an existing webhook owned by another integration, mistaken region/units, missing device fields, stale credentials and missing sender authorization. Improve fixed error-code help without logging sensitive details. Provide a synthetic guided demo that needs no accounts.

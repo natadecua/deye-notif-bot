@@ -23,6 +23,16 @@ Example journey with synthetic values: the bot reports the house battery supplyi
 
 After expiry, charging status becomes **unknown**, never an invented “stopped” state. This version has no measured EV telemetry adapter. Future direct detection must identify an actual supported vehicle/charger source; aggregate house or battery readings are not EV detection.
 
+### Distinguishing battery output, household loads and EV charging
+
+A synthetic **315 W battery discharge** means the battery is contributing that power. It does not establish total home consumption, which appliances are running, or how much an EV is drawing. Alerts and cached `/status` label the load breakdown as unknown; with EV hints enabled they explicitly show **Household / EV split: unknown**.
+
+The separate **EV charging** line shows either **unknown** or the owner's manual report with its expiry. Even “you confirmed charging” does not assign battery discharge to the EV or measure EV power. A valid **not charging** report suppresses EV reduction/profile advice, while preserving the battery alert and offering buttons to update the report. Once the report expires, conditional advice can return. Future-dated reports also count as unknown. With EV hints disabled, discharge alerts contain no EV advice or charging prompt.
+
+Measuring the split would require a validated, fresh read-only source for charger/vehicle power and compatible home-load measurements. No such source is integrated. These presentation changes reuse existing readings and bot state; they add no provider calls or KV operations.
+
+Configured profiles now appear as separate nominal reference lines in `/status` and applicable EV advice. For an owner-confirmed **230 V single-phase** setup, **8 A ≈ 1.84 kW**, **13 A ≈ 2.99 kW**, and an owner-entered **MAX of 7 kW** remain distinct choices. They are not battery-discharge thresholds or automatic detection rules: a lower battery contribution does not rule out charging because solar/grid can supply some of the demand. Other installations retain their own confirmed voltage/phases/profiles; these numbers are not universal defaults. Configure them with `npm run preferences` and explicitly deploy the saved settings.
+
 ## Enable commands on an existing installation
 
 First complete the normal Deye/Telegram setup and KV configuration in [README](../README.md). Use a dedicated bot. In the configured chat, send `/start` from the user who will own the commands, then run:

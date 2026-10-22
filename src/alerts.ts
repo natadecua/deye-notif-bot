@@ -1,7 +1,8 @@
 import type { Alert, Config, Reading, State } from './types.ts';
 import { notificationEnabled, stateIdentity } from './config.ts';
 import { SafeError } from './errors.ts';
-import { profileSummary } from './profiles.ts';
+import { chargingProfileReference } from './profiles.ts';
+import { activeChargingSession, chargingSummary, type BotState } from './bot-state.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
 export function initialState(c: Config): State {
@@ -83,7 +84,11 @@ export function transition(s: State, r: Reading, c: Config, now: number): 'accep
   }
   return 'accepted';
 }
-export function alertText(a: Alert, c: Config): string {
+export function batteryLoadSummary(c: Config): string {
+  return 'Load breakdown: unknown. Battery output alone does not identify individual loads or total home consumption.' +
+    (c.ev.enabled ? '\nHousehold / EV split: unknown.' : '');
+}
+export function alertText(a: Alert, c: Config, context?: { bot?: BotState; now: number }): string {
   // Format explicitly in UTC, independent of the Worker host's locale/timezone.
   const date = new Date(a.reading.at);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -94,10 +99,17 @@ export function alertText(a: Alert, c: Config): string {
     const target = c.fullSoc === 100 ? '' : `\nAlert target: ${c.fullSoc}%`;
     return `${title}\n\nCharge: ${a.reading.soc}%${target}${footer}`;
   }
-  let text = `⚡ House battery supplying power\n\nDischarge: ${Math.round(a.reading.dischargeWatts)} W\nCharge: ${a.reading.soc}%\nAbove ${c.dischargeWatts} W in two distinct readings.\n\nIf the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.`;
-  if (c.ev.enabled && c.ev.confirmed && c.ev.phases && c.ev.voltage && c.ev.minimumAmps) {
+  let text = `⚡ House battery supplying power\n\nBattery discharge: ${Math.round(a.reading.dischargeWatts)} W\nCharge: ${a.reading.soc}%\nAbove ${c.dischargeWatts} W in two distinct readings.\n\n${batteryLoadSummary(c)}`;
+  const session = context ? activeChargingSession(context.bot, context.now) : undefined;
+  if (c.ev.enabled) {
+    text += `\n\n${context ? chargingSummary(context.bot, c, context.now) : 'EV charging: unknown'}`;
+    if (session?.status !== 'not_charging') {
+      text += '\nIf the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.';
+    }
+  }
+  if (c.ev.enabled && session?.status !== 'not_charging' && c.ev.confirmed && c.ev.phases && c.ev.voltage && c.ev.minimumAmps) {
     if (c.ev.profiles?.length) {
-      text += `\n\nYour configured settings: ${c.ev.profiles.map(p => profileSummary(p, c.ev)).join('; ')}. Power values are nominal estimates, not measured EV demand. Current EV amperage is unknown: check the car first. Use only a supported lower setting if appropriate, staying at or above the configured minimum of ${c.ev.minimumAmps} A; otherwise pause manually if appropriate. No setting is selected automatically.`;
+      text += `\n\n${chargingProfileReference(c.ev)}\nCurrent EV amperage is unknown: check the car first. Use only a supported lower setting if appropriate, staying at or above the configured minimum of ${c.ev.minimumAmps} A; otherwise pause manually if appropriate. No setting is selected automatically.`;
     } else {
       const amps = Math.ceil(a.reading.dischargeWatts / (c.ev.phases * c.ev.voltage));
       text += `\n\nApproximate reduction: ${amps} A${c.ev.phases === 3 ? ' per phase (balanced three-phase)' : ' (single-phase)'} at ${c.ev.voltage} V line-to-neutral. Current EV amperage is unknown: check it first. Only reduce if the resulting setting stays at or above your charger's supported minimum of ${c.ev.minimumAmps} A; otherwise pause charging manually if appropriate. No target current is calculated.`;

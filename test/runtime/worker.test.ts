@@ -125,6 +125,8 @@ test('workerd authenticates webhook status and charging buttons using local KV a
     assert.equal((await post(statusUpdate, 'synthetic-wrong')).status, 403);
     assert.equal((await post(statusUpdate)).status, 200);
     assert.match(messages[0].text, /80%/); assert.match(messages[0].text, /EV charging: unknown/);
+    assert.match(messages[0].text, /Battery discharge: 500 W/);
+    assert.match(messages[0].text, /Household \/ EV split: unknown/);
     assert.equal(latestCalls, 1);
     await new Promise(resolve => setTimeout(resolve, 2100));
     assert.equal((await post({ update_id: 2, callback_query: { id: 'synthetic-runtime-button', from: { id: 789 },
@@ -133,6 +135,9 @@ test('workerd authenticates webhook status and charging buttons using local KV a
     await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date() });
     assert.equal(latestCalls, 2); assert.equal(messages.length, 3);
     assert.match(messages[2].text, /you confirmed charging/); assert(messages[2].reply_markup);
+    assert.match(messages[2].text, /Source: manual confirmation; expires/);
+    assert.match(messages[2].text, /Household \/ EV split: unknown/);
+    assert.equal(messages[2].text.match(/EV charging:/g)!.length, 1);
     const kv = await runtime.getKVNamespace('STATE');
     const stored = await kv.get('telegram:v1', 'json') as { session: { source: string } };
     assert.equal(stored.session.source, 'manual');
