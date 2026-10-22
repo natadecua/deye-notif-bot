@@ -83,3 +83,17 @@ test('unsafe preset and custom inputs fail before configuration can be saved', a
   await assert.rejects(configureChargingProfiles(electrical, prompts(['custom', 13]).p), /charging_profiles_invalid/);
   await assert.rejects(configureChargingProfiles(electrical, prompts(['custom', 1, 'Unsafe', 'amps', 6]).p), /charging_profiles_invalid/);
 });
+test('MAX in the 8/13/MAX preset cannot be rated below its 13 A setting', async () => {
+  await assert.rejects(configureChargingProfiles(electrical, prompts(['8-13-max', 2500]).p), /charging_profiles_invalid/);
+  await assert.rejects(configureChargingProfiles({ ...electrical, phases: 3 }, prompts(['8-13-max', 7000]).p), /charging_profiles_invalid/);
+});
+test('complete new-EV onboarding saves only explicitly confirmed profiles and preferences', async () => {
+  const original = config();
+  const h = prompts([['full', 'discharge'], true, '1', 230, 8, '8-13-max', 7000, true]);
+  const updated = await configurePreferences(original, h.p);
+  assert.deepEqual(updated.notifications, { full: true, discharge: true });
+  assert.equal(updated.ev.confirmed, true);
+  assert.equal(updated.ev.profiles?.length, 3);
+  assert.equal(h.remaining.length, 0);
+  assert.notEqual(updated, original);
+});
