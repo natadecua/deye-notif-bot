@@ -45,6 +45,8 @@ npm run telegram:webhook
 
 The last command prompts for **your deployed Worker HTTPS URL ending in `/telegram/webhook`**. It refuses URL credentials/query fragments, and refuses to replace a different existing webhook. It registers message/callback updates with a secret header and one connection, keeps pending updates, and registers the Telegram command menu. API acceptance does not establish end-to-end delivery; verify `/help`, `/status`, both confirmation buttons and expiry in the owner's chat.
 
+Setup failures show a fixed recovery hint alongside the sanitized code. In particular, an existing unrelated webhook calls for a dedicated bot; owner setup errors name the pairing/upload steps; and a command-menu failure explains that webhook registration may already have succeeded. Unknown exceptions are not echoed into these hints.
+
 When using GitHub delivery instead, first upload the new Cloudflare Secrets locally, update the private `WORKER_CONFIG_JSON` environment secret with the new configuration, and run the manual workflow after merging the code. Then register the webhook from the owner's laptop. Deye, Telegram and owner/webhook secret values must never be placed in GitHub workflow YAML or `WORKER_CONFIG_JSON`.
 
 Optional Cloudflare Secrets introduced by this feature:

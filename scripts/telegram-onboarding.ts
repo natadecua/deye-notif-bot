@@ -1,4 +1,24 @@
 import { SafeError } from '../src/errors.ts';
+export function telegramSetupHint(code: string): string | undefined {
+  switch (code) {
+    case 'telegram_webhook_already_configured':
+      return "Use a dedicated bot for this monitor. Do not remove or replace another integration's webhook.";
+    case 'telegram_webhook_url_invalid':
+      return 'Use your deployed Worker HTTPS URL ending in /telegram/webhook, with no URL credentials, query or fragment.';
+    case 'telegram_owner_setup_required':
+      return 'Run npm run telegram:setup, then npm run secrets:upload, deploy, and npm run telegram:webhook. Select the allowed sender user ID, not a group chat ID.';
+    case 'telegram_webhook_secret_invalid':
+      return 'Remove the invalid local TELEGRAM_WEBHOOK_SECRET, rerun npm run telegram:setup to generate it, upload secrets and register the webhook again. Keep secret values private.';
+    case 'telegram_menu_rejected':
+      return 'Webhook registration may already have succeeded. Check /help in the owner chat, then rerun npm run telegram:webhook with the same URL to retry the menu.';
+    case 'telegram_webhook_info_rejected':
+    case 'telegram_webhook_rejected':
+    case 'telegram_bot_identity_invalid':
+      return 'Check the bot token and access in your private local setup, then retry the Telegram setup step. Do not share raw API responses or request URLs.';
+    default:
+      return undefined;
+  }
+}
 export function ownerCandidates(updates: unknown, chat: string): string[] {
   if (!Array.isArray(updates)) return [];
   const owners = new Set<string>();

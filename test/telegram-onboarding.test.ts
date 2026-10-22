@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ownerCandidates, webhookRegistration } from '../scripts/telegram-onboarding.ts';
+import { ownerCandidates, telegramSetupHint, webhookRegistration } from '../scripts/telegram-onboarding.ts';
 
 // Synthetic sender/chat values and reserved-domain webhook, never a live installation.
 const secret = 'synthetic-webhook-secret-1234567890';
@@ -23,4 +23,23 @@ test('webhook registration rejects unsafe URLs, extra URL secrets and invalid he
     assert.throws(() => webhookRegistration(url, '', secret), /telegram_webhook_url_invalid/);
   }
   assert.throws(() => webhookRegistration('https://monitor.synthetic.invalid/telegram/webhook', '', 'short'), /telegram_webhook_secret_invalid/);
+});
+
+test('existing webhook recovery explains a dedicated bot without removing another integration', () => {
+  const hint = telegramSetupHint('telegram_webhook_already_configured');
+  assert.match(hint ?? '', /dedicated bot/i);
+  assert.match(hint ?? '', /do not remove/i);
+});
+test('setup recovery identifies the exact URL, pairing/upload steps and partial menu success', () => {
+  const url = telegramSetupHint('telegram_webhook_url_invalid') ?? '';
+  assert.match(url, /HTTPS/); assert.match(url, /\/telegram\/webhook/);
+  const owner = telegramSetupHint('telegram_owner_setup_required') ?? '';
+  assert.match(owner, /npm run telegram:setup/); assert.match(owner, /npm run secrets:upload/);
+  const menu = telegramSetupHint('telegram_menu_rejected') ?? '';
+  assert.match(menu, /already.*succeeded/i); assert.match(menu, /\/help/);
+});
+test('unknown setup codes never become reflected exception or URL hints', () => {
+  for (const code of ['synthetic-unknown', '__proto__', 'https://synthetic.invalid/botSYNTHETIC_SECRET']) {
+    assert.equal(telegramSetupHint(code), undefined);
+  }
 });

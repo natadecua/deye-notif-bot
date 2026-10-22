@@ -14,7 +14,7 @@ import { jsonPost } from '../src/http.ts';
 import { defaults } from '../src/types.ts';
 import type { Config, Secrets } from '../src/types.ts';
 import { configurePreferences, type InputValidator, type PreferencePrompts } from './preferences.ts';
-import { ownerCandidates, webhookRegistration } from './telegram-onboarding.ts';
+import { ownerCandidates, telegramSetupHint, webhookRegistration } from './telegram-onboarding.ts';
 
 // Resolve against this repository, even if the command is launched elsewhere.
 const root = fileURLToPath(new NodeURL('../', import.meta.url));
@@ -271,6 +271,9 @@ try {
     default: throw new SafeError('unknown_command');
   }
 } catch (error) {
-  console.error(`Command failed: ${errorCode(error)}. See README.md troubleshooting. No upstream response or secret was logged.`);
+  const code = errorCode(error);
+  console.error(`Command failed: ${code}. See README.md troubleshooting. No upstream response or secret was logged.`);
+  const hint = telegramSetupHint(code);
+  if (hint) console.error(hint);
   process.exitCode = 1;
 }

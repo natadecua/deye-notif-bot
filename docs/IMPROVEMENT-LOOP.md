@@ -27,6 +27,8 @@ Implemented in the current proposed PR:
 
 Remaining installation validation: owner-configured Cloudflare/GitHub secrets and production environment, real Telegram webhook/menu/buttons, actual fresh Deye measurements, natural alert cycles and production CPU/quotas. A synthetic runtime test is not a live validation record.
 
+Completed follow-up: Telegram setup failures now include fixed, actionable recovery steps for the owner/URL/secret flow, an existing webhook owned by another integration, and partial webhook/menu success. Unknown error text is never reflected into these hints. The next setup iteration should exercise the complete synthetic prompt journey and credential-recovery behavior, before adding unrelated features.
+
 ## Next improvements, in priority order
 
 1. **Owner setup walkthrough and recovery.** Exercise a fresh install, an existing webhook owned by another integration, mistaken region/units, missing device fields, stale credentials and missing sender authorization. Improve fixed error-code help without logging sensitive details. Provide a synthetic guided demo that needs no accounts.
