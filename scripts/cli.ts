@@ -14,6 +14,7 @@ import { jsonPost } from '../src/http.ts';
 import { defaults } from '../src/types.ts';
 import type { Config, Secrets } from '../src/types.ts';
 import { configurePreferences, type InputValidator, type PreferencePrompts } from './preferences.ts';
+import { ownerCandidates, webhookRegistration } from './telegram-onboarding.ts';
 
 // Resolve against this repository, even if the command is launched elsewhere.
 const root = fileURLToPath(new NodeURL('../', import.meta.url));
@@ -33,7 +34,8 @@ async function secrets(required = true): Promise<Secrets> {
   // Environment overrides the ignored file. No shell arguments contain secrets.
   const local = await exists(secretsPath) ? parseEnv(await readFile(secretsPath, 'utf8')) : {};
   const names = ['DEYE_APP_ID', 'DEYE_APP_SECRET', 'DEYE_ACCOUNT', 'DEYE_ACCOUNT_FIELD',
-    'DEYE_PASSWORD_SHA256', 'DEYE_COMPANY_ID', 'DEYE_COUNTRY_CODE', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'];
+    'DEYE_PASSWORD_SHA256', 'DEYE_COMPANY_ID', 'DEYE_COUNTRY_CODE', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID',
+    'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_OWNER_ID', 'TELEGRAM_BOT_USERNAME'];
   const result = Object.fromEntries(names.map(k => [k, process.env[k] ?? local[k]])) as unknown as Secrets;
   if (required) { validateDeyeSecrets(result); validateTelegramSecrets(result); }
   return result;
@@ -158,6 +160,9 @@ async function validateDeploy(): Promise<void> {
 async function uploadSecrets(): Promise<void> {
   await validateDeploy();
   const s = await secrets();
+  const w = await config();
+  if (w.vars.MONITOR_CONFIG.telegram?.enabled && (!/^[1-9]\d*$/.test(s.TELEGRAM_OWNER_ID ?? '') ||
+      !/^[a-zA-Z0-9_-]{32,256}$/.test(s.TELEGRAM_WEBHOOK_SECRET ?? ''))) throw new SafeError('telegram_owner_setup_required');
   const dir = await mkdtemp(join(tmpdir(), 'deye-secrets-'));
   try {
     const file = join(dir, 'secrets.json');
@@ -179,6 +184,62 @@ try {
       w.vars.MONITOR_CONFIG = await configurePreferences(w.vars.MONITOR_CONFIG, preferencePrompts);
       await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
       console.log('Saved preferences in ignored wrangler.jsonc. No Deye/Telegram calls or deployment were made. Run npm run deploy to apply them to your existing installation.');
+      break;
+    }
+    case 'telegram-setup': {
+      const w = await config();
+      const c = validateConfig(w.vars.MONITOR_CONFIG);
+      if (!c.enabled) throw new SafeError('monitor_disabled_run_setup_first');
+      const s = await secrets(false); validateTelegramSecrets(s);
+      const call = (method: string, body: unknown = {}) => jsonPost(`https://api.telegram.org/bot${s.TELEGRAM_BOT_TOKEN}/${method}`,
+        body, {}, defaults, 'telegram', 1);
+      console.log('Send /start to your own bot in the configured chat first. Setup reads Telegram updates to identify candidate owner IDs; message contents are not printed.');
+      const info = await call('getWebhookInfo');
+      if (info.ok !== true) throw new SafeError('telegram_webhook_info_rejected');
+      const active = (info.result as { url?: string } | undefined)?.url;
+      let candidates: string[] = [];
+      if (!active) {
+        const updates = await call('getUpdates', { timeout: 0, limit: 100, allowed_updates: ['message'] });
+        if (updates.ok !== true) throw new SafeError('telegram_updates_rejected');
+        candidates = ownerCandidates(updates.result, s.TELEGRAM_CHAT_ID);
+      }
+      const owner = candidates.length ? await select({ message: 'Choose the one sender allowed to use bot commands:',
+        choices: candidates.map(value => ({ name: `Telegram user ${value}`, value })) }) : await input({
+        message: 'Owner Telegram user ID (a user ID, not a group chat ID):', default: s.TELEGRAM_OWNER_ID,
+        validate: value => /^[1-9]\d*$/.test(value) || 'Enter a positive numeric Telegram user ID.',
+      });
+      const me = await call('getMe');
+      const username = (me.result as { username?: string } | undefined)?.username;
+      if (me.ok !== true || !username || !/^[a-zA-Z0-9_]{5,32}$/.test(username)) throw new SafeError('telegram_bot_identity_invalid');
+      const webhookSecret = s.TELEGRAM_WEBHOOK_SECRET || Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
+      await saveSecrets({ ...s, TELEGRAM_OWNER_ID: owner, TELEGRAM_WEBHOOK_SECRET: webhookSecret, TELEGRAM_BOT_USERNAME: username });
+      w.vars.MONITOR_CONFIG = { ...c, telegram: { enabled: true } };
+      w.workers_dev = true;
+      await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
+      console.log('Saved local owner/webhook settings. Next: npm run secrets:upload, npm run deploy, then npm run telegram:webhook. No deployment or webhook registration was performed.');
+      break;
+    }
+    case 'telegram-webhook': {
+      const w = await config();
+      if (!validateConfig(w.vars.MONITOR_CONFIG).telegram?.enabled) throw new SafeError('telegram_owner_setup_required');
+      const s = await secrets(false); validateTelegramSecrets(s);
+      if (!/^[1-9]\d*$/.test(s.TELEGRAM_OWNER_ID ?? '')) throw new SafeError('telegram_owner_setup_required');
+      const url = await input({ message: 'Your deployed Worker HTTPS URL ending in /telegram/webhook:' });
+      const info = await jsonPost(`https://api.telegram.org/bot${s.TELEGRAM_BOT_TOKEN}/getWebhookInfo`, {}, {}, defaults, 'telegram', 1);
+      if (info.ok !== true) throw new SafeError('telegram_webhook_info_rejected');
+      const body = webhookRegistration(url, (info.result as { url?: string } | undefined)?.url || '', s.TELEGRAM_WEBHOOK_SECRET || '');
+      const registered = await jsonPost(`https://api.telegram.org/bot${s.TELEGRAM_BOT_TOKEN}/setWebhook`, body, {}, defaults, 'telegram', 1);
+      if (registered.ok !== true) throw new SafeError('telegram_webhook_rejected');
+      console.log('Telegram accepted webhook registration. Verify /help and /status in the owner chat.');
+      const menu = await jsonPost(`https://api.telegram.org/bot${s.TELEGRAM_BOT_TOKEN}/setMyCommands`, { commands: [
+        { command: 'status', description: 'Latest cached battery reading and charging report' },
+        { command: 'charging', description: 'Confirm you are charging an EV' },
+        { command: 'stopped', description: 'Confirm you are not charging an EV' },
+        { command: 'settings', description: 'View notification preferences' },
+        { command: 'help', description: 'Show commands and manual-report limits' },
+      ] }, {}, defaults, 'telegram', 1);
+      if (menu.ok !== true) throw new SafeError('telegram_menu_rejected');
+      console.log('Telegram accepted the command menu. Registration does not establish live command delivery.');
       break;
     }
     case 'validate-deploy': await validateDeploy(); break;

@@ -1,6 +1,8 @@
 # Proposed seamless setup
 
-**Status: automatic cloud setup and Telegram pairing are a design proposal.** The existing `npm run setup` checks Deye, previews/validates readings, collects independently selected notifications and generic charging profiles, and can send a Telegram test. `npm run preferences` now edits those non-secret preferences offline without re-entering credentials. It does **not** log in to Cloudflare, create KV, upload secrets, deploy, pair a chat automatically or provide Telegram settings menus. The existing README documents those manual deployment steps.
+**Status: automatic cloud provisioning and the expanded in-chat setup below remain proposals.** `npm run setup` checks Deye, previews/validates readings, collects independently selected notifications and generic charging profiles, and can send a Telegram test. `npm run preferences` edits non-secret preferences offline. Optional Telegram pairing/commands were added in the follow-up below; Cloudflare login, KV creation, secret upload and deployment remain explicit owner-run steps described in README.
+
+**Follow-up:** the optional [Telegram command setup](TELEGRAM-BOT.md) now provides local sender selection and explicit webhook/menu registration, plus owner settings, cached status and expiring manual charging reports. Cloudflare provisioning and the expanded planning/onboarding flow below remain proposals. No live end-to-end onboarding has been validated for the new command slice.
 
 This proposal extends [the PRD](PRD.md) while preserving zero-cost per-owner hosting, an open-source repository and notification-only operation.
 

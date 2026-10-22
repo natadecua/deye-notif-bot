@@ -10,7 +10,7 @@ GitHub Actions validates pull requests and pushes to `main` on Node.js 22 and 24
 
 **Implementation status:** implemented and validated with synthetic local tests, a local Workers runtime, and a Wrangler deployment dry run. No real Deye credentials or Telegram bot were supplied. Live account access, actual installation units/time formats, live messages, production CPU usage, and cloud scheduling have **not** been validated by this project session. See [validation notes](docs/VALIDATION.md).
 
-See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [seamless Cloudflare/Telegram setup proposal](docs/ONBOARDING.md) for the exact implemented feature checklist and the expanded roadmap. Independent notification switches and configurable charging profiles are implemented in the laptop wizard. Telegram settings menus, charging-session tracking, automatic profile selection, pause recommendations and weather/history planning are **not implemented yet**. The current setup is the laptop wizard described below.
+The laptop wizard supports independent notification switches and configurable charging profiles. Optional [Telegram commands](docs/TELEGRAM-BOT.md) now add cached status, owner-authorized settings, expiring manual charging reports and yes/no confirmation buttons. Direct EV detection, automatic profile selection and weather/history planning remain future work. The [PRD](docs/PRD.md), [setup proposal](docs/ONBOARDING.md) and [improvement loop](docs/IMPROVEMENT-LOOP.md) distinguish implemented slices from that roadmap.
 
 ## Alerts
 
@@ -19,9 +19,12 @@ See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [se
 - Discharge messages say **“If the EV is charging…”**. Inverter telemetry cannot identify the EV as the cause.
 - Optional estimate when no fixed profiles are configured: `ceil(discharge W / voltage)` for single-phase, or `ceil(discharge W / (3 × line-to-neutral voltage))` for confirmed balanced three-phase. Setup requires confirmed phases, voltage and the charger's supported minimum. It never infers present EV amperage or recommends a target setting. Check present current yourself; reduce only if the resulting setting remains at or above the documented minimum. Otherwise consider pausing manually.
 
-Example:
+Messages use clear event titles, separate charge/power lines and readable UTC source times. A charge target below 100% is labelled “charge target reached”. Example (synthetic):
 
-> House battery is supplying sustained demand: 800 W. Discharge exceeded 300 W in two distinct readings.<br>
+> ⚡ House battery supplying power<br>
+> Discharge: 800 W<br>
+> Charge: 90%<br>
+> Above 300 W in two distinct readings.<br>
 > If the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.<br>
 > Approximate reduction: 4 A (single-phase) at 230 V line-to-neutral. Current EV amperage is unknown: check it first.
 
@@ -84,7 +87,13 @@ EV hints are optional. Users without an EV can skip the entire electrical/profil
 
 For a **confirmed 230 V single-phase example only**, 8 A is approximately 1.84 kW and 13 A approximately 2.99 kW. A user-entered 7,000 W MAX rating is shown as a nominal estimate with unspecified amperage. Three-phase calculations use three times the confirmed line-to-neutral voltage. These are neither measured EV power nor automatic charging detection.
 
-Profile changes and notification switches preserve battery alert cycles, including migration of the initial implementation's state identity. Changes to the station, units, thresholds or freshness interpretation still start new cycles. There is no Telegram settings menu or manual-session button yet; preferences are currently changed on the laptop and redeployed.
+Profile changes and notification switches preserve battery alert cycles, including migration of the initial implementation's state identity. Changes to the station, units, thresholds or freshness interpretation still start new cycles. Optional Telegram settings apply on subsequent polls without redeployment; `/settings reset` restores the deployed preferences. See [command setup and limits](docs/TELEGRAM-BOT.md).
+
+## Optional bot commands
+
+After normal setup, send `/start` to your bot and run `npm run telegram:setup` on your laptop. It pairs one authorized owner and generates a webhook secret. Upload the new secrets, deploy, then run `npm run telegram:webhook` to register the owner's HTTPS endpoint and command menu. Full steps are in [Telegram bot setup](docs/TELEGRAM-BOT.md).
+
+Use `/status` for cached battery data, `/charging` to confirm you are charging, `/stopped` when you finish, and `/settings` for notification preferences. EV-enabled discharge alerts offer **Yes, I'm charging** and **No, I'm not** buttons. Reports are explicitly manual, expire to unknown after six hours, and never establish that an EV caused battery discharge. No EV/charger detection API is integrated yet.
 
 ## Telegram setup
 
@@ -96,7 +105,7 @@ Profile changes and notification switches preserve battery alert cycles, includi
    npm run telegram:chats
    ```
 
-   This calls your bot's live `getUpdates` method without logging the token, request URL or message contents. A bot with an active webhook cannot use `getUpdates`; use your existing integration's known chat ID or a separate bot. Do not remove someone else's webhook just to run this monitor. The monitor itself does not use webhooks or read messages.
+   This calls your bot's live `getUpdates` method without logging the token, request URL or message contents. A bot with an active webhook cannot use `getUpdates`; use your existing integration's known chat ID or a separate bot. Do not remove someone else's webhook just to run this monitor. Notification-only mode does not read messages; optional bot commands use the authenticated webhook described above.
 
 4. `npm run setup` stores the token and selected numeric chat ID. Alternatively copy `.dev.vars.example` to `.dev.vars` and enter just the Telegram values to run a test:
 
@@ -108,7 +117,7 @@ Profile changes and notification switches preserve battery alert cycles, includi
 
 ## Deploy to your own Workers Free account
 
-Review your local `wrangler.jsonc` and the [Free-plan budget](docs/CLOUDFLARE-LIMITS.md). The generated config has one five-minute Cron Trigger and disables public `workers.dev`/preview URLs. Its HTTP handler always returns 404 and cannot trigger a poll.
+Review your local `wrangler.jsonc` and the [Free-plan budget](docs/CLOUDFLARE-LIMITS.md). The generated config has one five-minute Cron Trigger and disables public `workers.dev`/preview URLs by default. Enabling bot commands turns on the Worker's public address for authenticated `POST /telegram/webhook`; all other routes return 404. HTTP commands cannot trigger a Deye poll.
 
 ```sh
 npx wrangler login
@@ -144,7 +153,7 @@ Full behavior and failure tradeoffs are in [architecture notes](docs/ARCHITECTUR
 - KV stores alert latches, last reading time, confirmation count, a tiny retry outbox, and cached authentication. It is **eventually consistent**, not a global lock/transaction. Concurrent runs, region changes, crashes, or Telegram timeouts can duplicate or lose alerts. No exactly-once, at-least-once, or always-delivered guarantee is made.
 - Telegram retries are capped at three attempts per event, with persisted backoff and a 30-minute expiry. Delayed events require current fresh telemetry; messages are dropped if their triggering condition has cleared. Permanent failures are abandoned until the next rearmed cycle. A failed notification may therefore be missed; inspect logs and use the test command after fixing credentials.
 - Deye calls time out at eight seconds and make at most two attempts per HTTP operation. Long `Retry-After` values are deferred across polls. Other failures use a persistent cooldown. There are no unlimited loops.
-- Five-minute cadence uses **288 runs/day**. Typical KV use is about **576 reads/day and 288 state writes/day**, plus rare token renewal/notification checkpoints; the designed upper bound is **864 writes/day** for one monitor. Current Free limits and caveats, including the **10 ms Cron CPU budget**, are [documented with sources](docs/CLOUDFLARE-LIMITS.md). This is an estimate, not a measurement of production billing/CPU.
+- Five-minute cadence uses **288 runs/day**. Notification-only KV use is about **576 reads/day and 288 state writes/day**, plus rare token renewal/notification checkpoints; the designed upper bound is **864 writes/day**. Optional bot commands add one read per Cron and at most 48 normal command-state writes/day, for a combined **912-write/day** design bound under the same no-overlap assumptions. See the [Free limits and CPU caveats](docs/CLOUDFLARE-LIMITS.md). These are estimates, not measurements of production billing/CPU.
 
 ## Troubleshooting
 

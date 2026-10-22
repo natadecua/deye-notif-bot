@@ -30,6 +30,7 @@ export interface Config {
   ev: EVConfig;
   // Omitted in older installations: both notification categories remain enabled.
   notifications?: NotificationPreferences;
+  telegram?: { enabled: boolean };
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -41,6 +42,9 @@ export interface Secrets {
   DEYE_COUNTRY_CODE?: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  TELEGRAM_OWNER_ID?: string;
+  TELEGRAM_BOT_USERNAME?: string;
 }
 export interface KVStore {
   get(key: string): Promise<string | null>;
@@ -63,6 +67,7 @@ export interface State {
   version: 1;
   identity: string;
   lastReadingAt?: number;
+  latestReading?: Reading;
   fullArmed: boolean;
   dischargeArmed: boolean;
   highCount: number;

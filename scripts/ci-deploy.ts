@@ -17,7 +17,7 @@ function only(value: unknown, keys: string[]): Record<string, unknown> {
 }
 export interface DeploymentConfig {
   name: string; main: string; compatibility_date: string; account_id: string;
-  workers_dev: false; preview_urls: false; send_metrics: false;
+  workers_dev: boolean; preview_urls: false; send_metrics: false;
   triggers: { crons: string[] }; observability: { enabled: false };
   kv_namespaces: { binding: 'STATE'; id: string }[];
   vars: { MONITOR_CONFIG: Config };
@@ -39,13 +39,14 @@ export function prepareDeployment(env: Environment): DeploymentConfig {
     only(profile, ['id', 'label', 'type', 'amps', 'nominalWatts']);
   }
   if (monitor.notifications !== undefined) only(monitor.notifications, ['full', 'discharge']);
+  if (monitor.telegram !== undefined) only(monitor.telegram, ['enabled']);
   const config = validateConfig(monitor);
   if (!config.enabled) throw new SafeError('ci_monitor_disabled');
   const triggers = only(source.triggers, ['crons']);
   const observability = only(source.observability, ['enabled']);
   if (typeof source.name !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(source.name) ||
       source.main !== template.main || source.compatibility_date !== template.compatibility_date ||
-      source.workers_dev !== false || source.preview_urls !== false || observability.enabled !== false ||
+      source.workers_dev !== (config.telegram?.enabled === true) || source.preview_urls !== false || observability.enabled !== false ||
       JSON.stringify(triggers.crons) !== JSON.stringify(template.triggers.crons)) {
     throw new SafeError('ci_config_policy_invalid');
   }
@@ -55,7 +56,7 @@ export function prepareDeployment(env: Environment): DeploymentConfig {
     throw new SafeError('ci_kv_invalid');
   }
   return { name: source.name, main: template.main, compatibility_date: template.compatibility_date,
-    account_id: account, workers_dev: false, preview_urls: false, send_metrics: false,
+    account_id: account, workers_dev: config.telegram?.enabled === true, preview_urls: false, send_metrics: false,
     triggers: { crons: [...template.triggers.crons] }, observability: { enabled: false },
     kv_namespaces: [{ binding: 'STATE', id: kv.id }], vars: { MONITOR_CONFIG: config } };
 }

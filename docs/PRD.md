@@ -2,7 +2,9 @@
 
 Audit date: **2026-10-22**. Original core audited at commit `3819d75`; notification-switch/profile implementation status updated below.
 
-**Current status:** the original notification-only core passed 65 unit/functional tests plus one workerd test and hosted CI. With the laptop notification/profile wizard and offline advanced trigger/freshness settings now implemented, local validation passes **97 unit/functional tests plus two workerd tests**. No live Deye/Telegram integration or Cloudflare deployment has been tested. The Telegram onboarding, session tracking and planner below remain expanded specifications, **not implemented functionality**.
+**Historical baseline:** the original notification-only core passed 65 unit/functional tests plus one workerd test and hosted CI. The laptop notification/profile wizard and offline advanced trigger/freshness slice then passed **97 unit/functional tests plus two workerd tests**. The later command slice is summarized below. The expanded planner remains a specification, and no live Deye/Telegram integration or Cloudflare deployment has been validated by this development session.
+
+**Later implementation slice (2026-10-22):** optional owner-authorized commands, cached status/settings, a local pairing wizard, command-menu registration and six-hour manual charging reports/yes-no buttons are now implemented in the proposed PR. These do not implement direct EV detection, automatic profile recommendations or the planner. See [bot behavior](TELEGRAM-BOT.md), [iteration backlog](IMPROVEMENT-LOOP.md) and the latest validation record for current evidence; the earlier counts above are historical.
 
 ## 1. Product goal and boundaries
 
@@ -49,7 +51,7 @@ Keep connection secrets separate from non-secret preferences, runtime alert stat
 | Token cache/expiry, bounded retries and backoff | REST client and regression tests, including HTTP 408 red/green history | Live regional authorization/schema still untested. |
 | Freshness, distinct timestamps, missing values, long gaps, persistence | Reading/state-machine/monitor tests | Distributed KV and Telegram cannot provide exactly-once delivery. |
 | Guided setup, station selection, units and preview | `npm run setup`, terminal prompts in `scripts/cli.ts` | Technical laptop wizard, not friendly Telegram onboarding. |
-| Configurable full/discharge thresholds, freshness and EV hints | Terminal wizard + ignored local configuration | Independent full/discharge switches are now supported locally; in-chat settings remain planned. |
+| Configurable full/discharge thresholds, freshness and EV hints | Terminal wizard + ignored local configuration; optional owner bot settings | In-chat switches/trigger/re-arm edits are implemented; profile/electrical/freshness setup still uses the laptop wizard. |
 | License, contribution guidance, synthetic fixtures, CI and troubleshooting | MIT, CONTRIBUTING.md, AGENTS.md, README.md, tests | Original core is implemented, not a completed live installation. |
 
 Current normalized runtime readings retain only timestamp, house-battery SOC and discharge watts. Raw station preview also shows generation/consumption/charge fields, but the runtime does not retain them for a planner or historical analysis. Optional device discovery exists; an automatic device adapter is not implemented.
@@ -60,10 +62,10 @@ Current normalized runtime readings retain only timestamp, house-battery SOC and
 | --- | --- |
 | Full-battery and sustained-discharge messages | Implemented, synthetic validation only |
 | Independent full/discharge notification selection | Implemented in the laptop preferences/setup wizard |
-| Telegram onboarding/settings buttons | Not implemented |
+| Telegram onboarding/settings commands and charging buttons | Optional local pairing, webhook/menu registration and owner settings implemented; richer in-chat onboarding remains planned |
 | Quiet hours, local timezone scheduling and daily recap | Not implemented |
 | Custom discrete current/power profiles, including 8 A / 13 A / MAX | Implemented for setup and message display; MAX power is explicitly entered |
-| Manual charging-session acknowledgement and expiry | Not implemented |
+| Manual charging-session acknowledgement and expiry | Implemented with a six-hour expiry, manual evidence and optional reported profile ID |
 | Confirmed automatic EV charging detection | No data source established; not implemented |
 | “Good time to start”, “reduce”, “pause” and “resume” recommendations | Not implemented |
 | Car-target/house-battery-reserve handling | Not implemented |

@@ -100,3 +100,14 @@ test('failed deployment exits as failure and persistence failure never starts de
   }));
   assert.equal(deployed, false);
 });
+
+test('CI deployment permits the webhook URL only with explicit Telegram commands enabled', () => {
+  const s = settings(); s.vars.MONITOR_CONFIG.telegram = { enabled: true }; s.workers_dev = true;
+  const deployed = prepareDeployment({ ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) });
+  assert.equal(deployed.workers_dev, true);
+  assert.deepEqual(deployed.vars.MONITOR_CONFIG.telegram, { enabled: true });
+});
+test('CI deployment rejects unrecognized nested Telegram configuration', () => {
+  const s = settings(); s.vars.MONITOR_CONFIG.telegram = { enabled: false, token: 'synthetic-secret' };
+  assert.throws(() => prepareDeployment({ ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) }), /ci_config_unsupported_field/);
+});

@@ -36,6 +36,8 @@ export function validateConfig(raw: unknown): Config {
     throw new SafeError('notification_preferences_invalid');
   }
   validateChargingProfiles(c.ev);
+  if (c.telegram !== undefined && (!c.telegram || Array.isArray(c.telegram) ||
+      typeof c.telegram.enabled !== 'boolean')) throw new SafeError('telegram_preferences_invalid');
   return c;
 }
 

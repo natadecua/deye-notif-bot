@@ -22,6 +22,8 @@
     "secrets:upload": "tsx scripts/cli.ts secrets-upload",
     "test:runtime": "tsx --test test/runtime/*.test.ts",
     "telegram:chats": "tsx scripts/cli.ts telegram-chats",
+    "telegram:setup": "tsx scripts/cli.ts telegram-setup",
+    "telegram:webhook": "tsx scripts/cli.ts telegram-webhook",
     "preferences": "tsx scripts/cli.ts preferences"
   },
   "devDependencies": {

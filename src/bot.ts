@@ -1,0 +1,131 @@
+import { defaults, type Config, type Dependencies, type Env } from './types.ts';
+import { validateConfig } from './config.ts';
+import { decodeState } from './alerts.ts';
+import { BOT_KEY, chargingSummary, decodeBotState, SESSION_MS } from './bot-state.ts';
+import { applyTelegramCommand, settingsOverrides } from './telegram-settings.ts';
+import { sendTelegram } from './telegram.ts';
+import { jsonPost } from './http.ts';
+import { SafeError } from './errors.ts';
+
+const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
+const record = (v: unknown): Record<string, unknown> | undefined =>
+  v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
+function secretMatches(actual: string | null, expected: string | undefined): boolean {
+  if (!expected || !/^[a-zA-Z0-9_-]{32,256}$/.test(expected) || actual?.length !== expected.length) return false;
+  let difference = 0;
+  for (let i = 0; i < expected.length; i++) difference |= actual.charCodeAt(i) ^ expected.charCodeAt(i);
+  return difference === 0;
+}
+async function payload(request: Request): Promise<Record<string, unknown>> {
+  const reader = request.body?.getReader();
+  if (!reader) throw new SafeError('bot_payload_invalid');
+  const chunks: Uint8Array[] = []; let size = 0;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > 8192) { await reader.cancel(); throw new SafeError('bot_payload_too_large'); }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  const result = record(JSON.parse(new TextDecoder().decode(bytes)));
+  if (!result) throw new SafeError('bot_payload_invalid');
+  return result;
+}
+async function status(env: Env, c: Config, now: number): Promise<string> {
+  const state = decodeState(await env.STATE.get('monitor:v1'), c);
+  const r = state.latestReading;
+  if (!r) return '🔋 Battery status\n\nNo cached reading yet. Wait for a successful scheduled poll.';
+  const age = Math.floor((now - r.at) / 1000);
+  const quality = age < 0 || age > c.maxAgeSeconds ? 'stale — do not treat this as current' : 'within the configured freshness limit';
+  return `🔋 Battery status\n\nCharge: ${r.soc}%\nDischarge: ${Math.round(r.dischargeWatts)} W\nReading: ${new Date(r.at).toISOString().slice(0, 19).replace('T', ' ')} UTC\nData age: ${age} seconds (${quality})\n${c.enabled ? 'Scheduled monitoring is enabled.' : 'Scheduled monitoring is disabled.'}\nDeye Cloud data may be delayed.`;
+}
+export async function handleTelegramRequest(request: Request, env: Env, deps: Dependencies = defaults): Promise<Response> {
+  const ok = () => new Response('OK');
+  if (request.method !== 'POST' || new URL(request.url).pathname !== '/telegram/webhook') {
+    return new Response('Not found', { status: 404 });
+  }
+  let persisted = false;
+  try {
+    const base = validateConfig(env.MONITOR_CONFIG);
+    if (!base.telegram?.enabled) return new Response('Not found', { status: 404 });
+    if (!secretMatches(request.headers.get('X-Telegram-Bot-Api-Secret-Token'), env.TELEGRAM_WEBHOOK_SECRET) ||
+        !/^[1-9]\d*$/.test(env.TELEGRAM_OWNER_ID ?? '')) return new Response('Forbidden', { status: 403 });
+    let update: Record<string, unknown>;
+    try { update = await payload(request); } catch (e) {
+      return new Response('Invalid update', { status: e instanceof SafeError && e.code === 'bot_payload_too_large' ? 413 : 400 });
+    }
+    const callback = record(update.callback_query);
+    const message = record(callback?.message ?? update.message);
+    if (!message) return ok();
+    const sender = record(callback?.from ?? message.from), chat = record(message.chat);
+    if (!sender || !Number.isSafeInteger(sender.id) || String(sender.id) !== env.TELEGRAM_OWNER_ID || sender.is_bot === true ||
+        !chat || !Number.isSafeInteger(chat.id) || String(chat.id) !== env.TELEGRAM_CHAT_ID) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    const now = deps.now();
+    if (!Number.isSafeInteger(update.update_id) || (update.update_id as number) < 0) return new Response('Invalid update', { status: 400 });
+    let command = typeof message.text === 'string' && message.text.length <= 128 ? message.text.trim() : '';
+    if (!callback) {
+      if (!command.startsWith('/') || typeof message.date !== 'number' || !Number.isSafeInteger(message.date) ||
+          message.date * 1000 > now || now - message.date * 1000 > 15 * 60_000) return ok();
+      const mention = /^\/[a-z_]+@([a-z0-9_]+)/i.exec(command);
+      if (mention && mention[1].toLowerCase() !== env.TELEGRAM_BOT_USERNAME?.toLowerCase()) return ok();
+      command = command.replace(/^\/(\w+)@[a-z0-9_]+/i, '/$1');
+    } else if (typeof callback.id !== 'string' || callback.id.length > 256 || typeof callback.data !== 'string' || callback.data.length > 64) {
+      return new Response('Invalid update', { status: 400 });
+    }
+    const state = decodeBotState(await env.STATE.get(BOT_KEY), base);
+    // Telegram may randomize IDs after a week without updates; fresh message dates still apply.
+    if ((update.update_id as number) <= state.lastUpdateId && now - state.lastHandledAt < 7 * 24 * 3600_000) return ok();
+    if (now - state.lastHandledAt < 2000) return ok();
+    const day = new Date(now).toISOString().slice(0, 10);
+    if (state.day !== day) { state.day = day; state.used = 0; }
+    if (state.used >= 48) return ok();
+    const c = validateConfig({ ...base, ...state.overrides });
+    let reply: string;
+    const button = callback ? /^charging:(yes|no):(\d{1,16})$/.exec(callback.data as string) : null;
+    if (state.used === 47) {
+      reply = 'Daily command limit reached. Try again after 00:00 UTC. Scheduled battery monitoring continues.';
+    } else if (callback && (!button || now < Number(button[2]) || now - Number(button[2]) > 30 * 60_000)) {
+      reply = 'That confirmation has expired. Use /charging or /stopped to make a new manual report.';
+    } else if (button || /^\/(charging|stopped)(?:\s+\S+)?$/.test(command)) {
+      const [verb, profileId] = command.slice(1).split(/\s+/);
+      const charging = button ? button[1] === 'yes' : verb === 'charging';
+      if (profileId && (!charging || !c.ev.profiles?.some(p => p.id === profileId))) {
+        reply = `Unknown profile. Configured profile IDs: ${c.ev.profiles?.map(p => p.id).join(', ') || 'none'}. Use /charging without a profile if unsure.`;
+      } else {
+        state.session = { status: charging ? 'charging' : 'not_charging', source: 'manual', at: now, expiresAt: now + SESSION_MS,
+          ...(profileId ? { profileId } : {}) };
+        reply = chargingSummary(state, c, now) + '\nUse /stopped when you finish. Equipment changes remain manual.';
+      }
+    } else if (command === '/status') {
+      reply = await status(env, c, now) + `\n\n${chargingSummary(state, c, now)}`;
+    } else if (command === '/help' || command === '/start') {
+      reply = help;
+    } else if (command === '/settings reset') {
+      delete state.overrides;
+      reply = 'Deployment preferences restored. They apply on the next scheduled reading.';
+    } else {
+      const result = applyTelegramCommand(c, command);
+      if (result.changed) state.overrides = settingsOverrides(result.config);
+      reply = result.reply;
+    }
+    state.lastUpdateId = update.update_id as number; state.lastHandledAt = now; state.used++;
+    await env.STATE.put(BOT_KEY, JSON.stringify(state));
+    persisted = true;
+    // One bounded attempt per method. A crash/transport failure can lose a reply;
+    // KV replay protection is best effort, never an exactly-once guarantee.
+    if (callback) {
+      try {
+        await jsonPost(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
+          { callback_query_id: callback.id, text: 'Report processed. Check the bot reply.' }, {}, deps, 'telegram', 1);
+      } catch { /* Acknowledgement failure must not suppress the ordinary confirmation reply. */ }
+    }
+    await sendTelegram(env, reply, deps);
+    return ok();
+  } catch {
+    return persisted ? ok() : new Response('Temporarily unavailable', { status: 503 });
+  }
+}

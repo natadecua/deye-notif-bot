@@ -82,3 +82,41 @@ test('outbox expires; expiry never rearms the cycle', () => {
   expirePending(s, BASE_TIME + 31 * 60_000);
   assert.equal(s.pending.length, 0); assert.equal(s.fullArmed, false);
 });
+
+test('full alert has a readable title, charge and UTC reading without redundant threshold jargon', () => {
+  // Synthetic timestamp matching the reported formatting example.
+  const at = Date.parse('2026-10-22T08:24:07.000Z');
+  const s = initialState(c);
+  transition(s, { at, soc: 100, dischargeWatts: 0 }, c, at);
+  assert.equal(alertText(s.pending[0], c), [
+    '🔋 House battery full', '', 'Charge: 100%', '',
+    'Reading: 22 Oct 2026, 08:24:07 UTC', 'Deye Cloud data may be delayed.',
+  ].join('\n'));
+});
+
+test('custom full thresholds say target reached rather than claiming a full battery', () => {
+  const custom = config({ fullSoc: 95, fullRearmSoc: 92 });
+  const s = initialState(custom);
+  transition(s, { at: BASE_TIME, soc: 96.5, dischargeWatts: 0 }, custom, BASE_TIME);
+  const text = alertText(s.pending[0], custom);
+  assert.match(text, /^🔋 House battery charge target reached\n\nCharge: 96.5%\nAlert target: 95%\n\n/);
+  assert.doesNotMatch(text, /battery full/);
+});
+
+test('discharge alert separates measured power, charge, confirmation and conditional advice', () => {
+  const s = initialState(c);
+  apply(s, 90, 800); apply(s, 90, 800, 5);
+  assert.equal(alertText(s.pending[0], c), [
+    '⚡ House battery supplying power', '', 'Discharge: 800 W', 'Charge: 90%',
+    'Above 300 W in two distinct readings.', '',
+    'If the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.', '',
+    'Reading: 21 Oct 2026, 12:05:00 UTC', 'Deye Cloud data may be delayed.',
+  ].join('\n'));
+});
+
+test('reading display keeps the UTC date across a year boundary and drops ISO milliseconds', () => {
+  const at = Date.parse('2027-01-01T00:00:01.123Z');
+  const s = initialState(c);
+  transition(s, { at, soc: 100, dischargeWatts: 0 }, c, at);
+  assert.match(alertText(s.pending[0], c), /Reading: 1 Jan 2027, 00:00:01 UTC\n/);
+});

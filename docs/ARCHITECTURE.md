@@ -1,6 +1,6 @@
 # Architecture and failure semantics
 
-One owner's Cron invocation → Deye regional REST API → validated station reading → pure alert state machine → persistent KV outbox → Telegram. Configuration is a JSON Worker variable bundled by Wrangler. Credentials are Cloudflare Secrets. There is no database of users, public polling endpoint, command webhook or control endpoint.
+One owner's Cron invocation → Deye regional REST API → validated station reading → pure alert state machine → persistent KV outbox → Telegram. Configuration is a JSON Worker variable bundled by Wrangler. Credentials are Cloudflare Secrets. Optional owner-authorized Telegram updates use a dedicated secret-header webhook and a separate small KV record. There is no database of users, public polling endpoint or equipment-control endpoint.
 
 ## Modules
 
@@ -14,15 +14,21 @@ One owner's Cron invocation → Deye regional REST API → validated station rea
 | `src/http.ts` | Deadlines, bounded transient retries, sanitized exceptions |
 | `src/telegram.ts` | Plain-text notification transport, success envelope validation |
 | `src/monitor.ts` | One scheduled run, persistence, cooldowns and retry delivery |
-| `src/index.ts` | Cron entry point and a 404 HTTP handler |
+| `src/index.ts` | Cron entry point and opt-in webhook routing; other routes return 404 |
+| `src/bot.ts`, `src/bot-state.ts` | Optional authorized webhook, cached status, bounded interaction state and expiring manual charging reports |
+| `src/telegram-settings.ts` | Pure owner-command parsing and validated settings overrides |
 | `scripts/cli.ts` | Laptop-only setup, offline preferences, preview, Telegram tests and secret upload |
 | `scripts/preferences.ts` | Testable notification/profile onboarding with injected prompts |
 
-Runtime uses only standard Workers APIs: `fetch`, Web Crypto, KV and timers. npm dependencies are development/setup/test tooling, not runtime dependencies.
+Runtime uses only standard Workers APIs: `fetch`, Web Crypto, streams, KV and timers. npm dependencies are development/setup/test tooling, not runtime dependencies. `src/index.ts` keeps all routes at 404 by default; enabling Telegram commands handles only authenticated `POST /telegram/webhook`.
 
 ## Interpretation and alert state
 
 `monitor:v1` holds a versioned, small JSON object: last accepted timestamp, two armed flags, the high-discharge counter, API cooldown and up to two pending events. Invalid persisted state fails closed with `state_invalid`; it is not silently reset. A first deployment starts both flags armed. Changing the station, region, units, timestamp mode, thresholds or freshness limits intentionally starts new alert cycles and discards old pending events. Notification switches, EV hints/profiles and bot/chat changes preserve battery cycles. Initial state identities that appended the EV object are migrated by matching the ten measurement-interpretation fields; no latches, timestamps or confirmation counts are lost solely because hint settings changed.
+
+It optionally also holds `latestReading`, updated only on accepted readings for cached `/status`. Legacy records without it remain valid. Webhook commands never write `monitor:v1`, poll Deye or alter battery latches. They write `telegram:v1`: a station-context identity, bounded UTC command counter, last update/time, optional validated preference overrides and one manual session with a six-hour expiry. With commands enabled, Cron reads that record once and applies preferences before existing transitions. Manual session fields do not enter the battery-state identity.
+
+The webhook requires its Cloudflare secret header plus the configured owner sender and destination chat. Payloads are capped at 8 KiB; old text commands/confirmation buttons are ignored or reported expired. Up to 48 ordinary sequential command writes/day are permitted, with a two-second spacing guard and best-effort update-ID filtering. State is saved before bounded one-attempt replies. KV eventual consistency still allows lost/duplicate replies or effects under concurrency/crashes. See [Telegram bot semantics](TELEGRAM-BOT.md) for settings precedence, bounds and failure behavior. Automatic EV detection is not implemented; a manual confirmation does not identify the cause of battery discharge.
 
 Accept a reading only if it has numeric SOC in `[0,100]`, numeric non-negative `dischargePower`, a valid supported timestamp no later than the current clock, and age ≤ 600 seconds by default. The station adapter requires both measurements. Convert explicitly confirmed kW to W. Never coerce empty/null values or infer direction from `batteryPower`.
 
