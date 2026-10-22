@@ -115,7 +115,7 @@ Default for this owner: **solar first, grid allowed before departure**.
 
 Collect car-available days/windows (e.g. 09:00–16:00), next departure time and the requested energy to add. If actual EV SOC/capacity is unavailable, allow a user-entered energy goal rather than fabricating a car SOC. Clearly distinguish energy drawn at the charger from energy stored in the car; losses and reduced actual charging rates affect completion estimates.
 
-Collect the house-battery reserve, desired house-battery SOC by evening, and whether house battery or EV receives priority while solar is limited. A low reserve is a boundary, not a daily target. No user-specific reserve or evening target has been chosen yet.
+Collect the house-battery reserve, desired house-battery SOC by evening, and whether house battery or EV receives priority while solar is limited. A low reserve is a boundary, not a daily target. The owner has now reported a 32 kWh battery, a 13% grid-fallback setting and approximately 40% remaining on a normal morning, and wants short cloud dips/some nighttime EV charging tolerated while protecting normal household use. Morning SOC is not overnight consumption. Sunset SOC, useful-solar windows/timezone, the desired morning target and warning margin still need confirmation; no personal reserve threshold has been chosen. The [reserve-alert proposal](RESERVE-ALERTS.md) now takes priority for the next planner slice and remains unimplemented.
 
 ### Step D: location and system
 

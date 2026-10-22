@@ -33,6 +33,8 @@ Owner-requested alert clarification: battery discharge and unknown load breakdow
 
 ## Next improvements, in priority order
 
+**Latest owner priority: household reserve during EV charging.** The goal is to tolerate short cloud dips and some nighttime charging while preserving enough battery for normal household use until solar returns. The reported 32 kWh capacity, 13% grid fallback and usual 40% morning SOC do not yet determine a safe day/night threshold. See [the reserve-alert proposal](RESERVE-ALERTS.md) for the open inputs, conditional arithmetic and acceptance requirements. Clarify those inputs before choosing personal thresholds; implement this opt-in journey ahead of the general backlog below. The proposal is not runtime behavior or a deployment record.
+
 1. **Owner setup walkthrough and recovery.** Exercise a fresh install, an existing webhook owned by another integration, mistaken region/units, missing device fields, stale credentials and missing sender authorization. Improve fixed error-code help without logging sensitive details. Provide a synthetic guided demo that needs no accounts.
 2. **Telegram profile buttons.** After confirming a charging session, offer only the owner's configured profiles as manual reports. Show session expiry and let the owner renew/clear it; never convert a nominal MAX power rating into measured amperage or control the charger.
 3. **Local-time display and richer notification context.** Confirm the installation timezone. Add optional solar/home/grid context only after each field's units/direction are verified. Missing optional values must not suppress the basic battery alerts. Reuse the existing station request.
