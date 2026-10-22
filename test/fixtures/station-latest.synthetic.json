@@ -1,0 +1,13 @@
+{
+  "_fixture": "SYNTHETIC: invented values, not captured from a real Deye installation",
+  "success": true,
+  "code": 1000000,
+  "requestId": "synthetic-request",
+  "batterySOC": 96,
+  "dischargePower": 420,
+  "chargePower": 0,
+  "batteryPower": -420,
+  "generationPower": 1200,
+  "consumptionPower": 1620,
+  "lastUpdateTime": "2026-10-21T12:00:00Z"
+}

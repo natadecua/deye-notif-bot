@@ -1,0 +1,8 @@
+{
+  "_fixture": "SYNTHETIC: invalid invented token, never a credential",
+  "success": true,
+  "code": 1000000,
+  "accessToken": "Bearer synthetic-token-not-valid",
+  "expiresIn": 5183999,
+  "tokenType": "bearer"
+}

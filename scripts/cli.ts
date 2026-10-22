@@ -1,0 +1,215 @@
+import { confirm, input, password, select } from '@inquirer/prompts';
+import { readFile, writeFile, chmod, access, mkdtemp, rm } from 'node:fs/promises';
+import { parseEnv } from 'node:util';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, URL as NodeURL } from 'node:url';
+import { DeyeClient, sha256, validateDeyeSecrets } from '../src/deye.ts';
+import { HOSTS, validateConfig } from '../src/config.ts';
+import { errorCode, SafeError } from '../src/errors.ts';
+import { normalizeReading, parseTimestamp } from '../src/reading.ts';
+import { sendTelegram, validateTelegramSecrets } from '../src/telegram.ts';
+import { jsonPost } from '../src/http.ts';
+import { defaults } from '../src/types.ts';
+import type { Config, Secrets } from '../src/types.ts';
+
+// Resolve against this repository, even if the command is launched elsewhere.
+const root = fileURLToPath(new NodeURL('../', import.meta.url));
+const configPath = join(root, 'wrangler.jsonc');
+const secretsPath = join(root, '.dev.vars');
+type LocalConfig = { kv_namespaces: { binding: string; id: string }[];
+  vars: { MONITOR_CONFIG: Config }; [key: string]: unknown };
+async function exists(path: string): Promise<boolean> { try { await access(path); return true; } catch { return false; } }
+async function init(): Promise<void> {
+  if (!await exists(configPath)) await writeFile(configPath, await readFile(join(root, 'wrangler.example.jsonc')));
+}
+async function config(): Promise<LocalConfig> {
+  await init();
+  try { return JSON.parse(await readFile(configPath, 'utf8')); } catch { throw new SafeError('local_config_invalid_json'); }
+}
+async function secrets(required = true): Promise<Secrets> {
+  // Environment overrides the ignored file. No shell arguments contain secrets.
+  const local = await exists(secretsPath) ? parseEnv(await readFile(secretsPath, 'utf8')) : {};
+  const names = ['DEYE_APP_ID', 'DEYE_APP_SECRET', 'DEYE_ACCOUNT', 'DEYE_ACCOUNT_FIELD',
+    'DEYE_PASSWORD_SHA256', 'DEYE_COMPANY_ID', 'DEYE_COUNTRY_CODE', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'];
+  const result = Object.fromEntries(names.map(k => [k, process.env[k] ?? local[k]])) as unknown as Secrets;
+  if (required) { validateDeyeSecrets(result); validateTelegramSecrets(result); }
+  return result;
+}
+async function saveSecrets(s: Secrets): Promise<void> {
+  const content = Object.entries(s).filter(([, v]) => v !== undefined)
+    .map(([k, v]) => `${k}=${JSON.stringify(v)}`).join('\n') + '\n';
+  // Ensure the chosen .env encoding round-trips; never silently corrupt a secret.
+  const decoded = parseEnv(content);
+  if (Object.entries(s).some(([k, v]) => v !== undefined && decoded[k] !== v)) {
+    throw new SafeError('secret_contains_unsupported_characters');
+  }
+  await writeFile(secretsPath, content, { mode: 0o600 });
+  await chmod(secretsPath, 0o600);
+}
+async function numberInput(message: string, fallback?: number): Promise<number> {
+  return Number(await input({ message, default: fallback === undefined ? undefined : String(fallback),
+    validate: v => v.trim() !== '' && Number.isFinite(Number(v)) || 'Enter a finite number.' }));
+}
+function previewFields(raw: Record<string, unknown>): void {
+  // Deliberate allowlist: never print whole upstream bodies, locations or account details.
+  console.log(JSON.stringify(Object.fromEntries(['batterySOC', 'dischargePower', 'chargePower',
+    'batteryPower', 'generationPower', 'consumptionPower', 'lastUpdateTime']
+    .map(k => [k, raw[k] ?? null])), null, 2));
+}
+async function setup(): Promise<void> {
+  console.log('Setup makes live read-only Deye calls. Credentials stay in your ignored .dev.vars file until you upload them to your own Cloudflare account.');
+  const w = await config();
+  const c = w.vars.MONITOR_CONFIG;
+  c.enabled = false;
+  c.measurementsConfirmed = false;
+  c.region = await select({ message: 'Choose the region containing your Deye account/station:',
+    choices: [{ name: `EU / EMEA / APAC: ${HOSTS.eu}`, value: 'eu' as const },
+      { name: `Americas: ${HOSTS.am}`, value: 'am' as const },
+      { name: `India: ${HOSTS.india}`, value: 'india' as const }] });
+  let s = await secrets(false);
+  const reuse = !!s.DEYE_APP_ID && await confirm({ message: 'Reuse existing local Deye credentials?', default: true });
+  if (!reuse) {
+    s = { TELEGRAM_BOT_TOKEN: s.TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID: s.TELEGRAM_CHAT_ID } as Secrets;
+    s.DEYE_APP_ID = await password({ message: 'Deye App ID (hidden):', mask: '*' });
+    s.DEYE_APP_SECRET = await password({ message: 'Deye App Secret:', mask: '*' });
+    s.DEYE_ACCOUNT_FIELD = await select({ message: 'Account login type:', choices: ['email', 'username', 'mobile'] });
+    s.DEYE_ACCOUNT = await password({ message: `Deye ${s.DEYE_ACCOUNT_FIELD} (hidden):`, mask: '*' });
+    if (s.DEYE_ACCOUNT_FIELD === 'mobile') s.DEYE_COUNTRY_CODE = await input({ message: 'Country calling code (digits only, no +):' });
+    s.DEYE_PASSWORD_SHA256 = await sha256(await password({ message: 'Deye password (hashed locally; plaintext is not saved):', mask: '*' }));
+    const company = await input({ message: 'Company ID (leave blank for personal account):' });
+    if (company) s.DEYE_COMPANY_ID = company;
+  }
+  const client = new DeyeClient(c, s);
+  const stations: Record<string, unknown>[] = [];
+  for (let page = 1; ; page++) {
+    const result = await client.stations(page);
+    stations.push(...result.stations);
+    if (stations.length >= result.total || result.stations.length === 0) break;
+    if (page >= 100) throw new SafeError('station_pagination_limit');
+  }
+  if (!stations.length) throw new SafeError('no_stations_in_selected_region_or_company');
+  const selected = await select({ message: 'Deye access validated. Select your house battery station:',
+    choices: stations.filter(st => Number.isSafeInteger(st.id) && Number(st.id) > 0).map(st => ({
+      name: `${String(st.name ?? 'Station')} (ID ${st.id}; timezone ${String(st.regionTimezone ?? 'not provided')})`,
+      value: st,
+    })) });
+  c.stationId = Number(selected.id);
+  const raw = await client.latest();
+  console.log('Live station preview; missing fields are displayed as null:');
+  previewFields(raw);
+  c.powerUnit = await select({ message: 'Compare dischargePower with the Deye app or device documentation. Which unit does THIS API value use? Do not guess.',
+    choices: [{ name: 'Watts (e.g. 500 means 500 W)', value: 'W' as const },
+      { name: 'Kilowatts (e.g. 0.5 means 500 W)', value: 'kW' as const }] });
+  c.timestampMode = await select({ message: 'Confirm the timestamp format from the preview:',
+    choices: [{ name: 'ISO 8601 with explicit Z or ±HH:MM offset', value: 'iso-offset' as const },
+      { name: 'Numeric Unix seconds (absolute UTC)', value: 'unix-seconds' as const },
+      { name: 'Numeric Unix milliseconds (absolute UTC)', value: 'unix-milliseconds' as const }] });
+  const at = parseTimestamp(raw.lastUpdateTime, c.timestampMode);
+  console.log(`Timestamp interpreted as ${new Date(at).toISOString()} (UTC). Station timezone metadata: ${String(selected.regionTimezone ?? 'not provided')}.`);
+  const reading = normalizeReading(raw, c, Date.now());
+  console.log(`Normalized: ${reading.soc}% SOC, ${reading.dischargeWatts} W discharge.`);
+  if (!await confirm({ message: 'Have you verified the units, UTC reading time, SOC percentage, and that dischargePower is non-negative battery-to-load power? If uncertain, stop and consult docs/DEYE-API.md.', default: false })) {
+    throw new SafeError('measurements_not_confirmed');
+  }
+  c.measurementsConfirmed = true;
+  if (await confirm({ message: 'Customize alert thresholds and freshness limits?', default: false })) {
+    c.fullSoc = await numberInput('Full-charge SOC threshold (%):', c.fullSoc);
+    c.fullRearmSoc = await numberInput('Re-arm full alert strictly below SOC (%):', c.fullRearmSoc);
+    c.dischargeWatts = await numberInput('Discharge must be strictly above (W), for two distinct readings:', c.dischargeWatts);
+    c.dischargeRearmWatts = await numberInput('Re-arm discharge alert strictly below (W):', c.dischargeRearmWatts);
+    c.maxAgeSeconds = await numberInput('Maximum reading age (seconds):', c.maxAgeSeconds);
+    c.maxGapSeconds = await numberInput('Reset confirmation after reading gap (seconds):', c.maxGapSeconds);
+  }
+  c.ev = { enabled: await confirm({ message: 'Enable optional manual EV current-reduction estimates?', default: false }) };
+  if (c.ev.enabled) {
+    c.ev.phases = await select({ message: 'Confirm the EV charger’s actual charging phase configuration (check the installation):',
+      choices: [{ name: 'Single-phase', value: 1 as const }, { name: 'Balanced three-phase', value: 3 as const }] });
+    c.ev.voltage = await numberInput('Confirmed line-to-neutral voltage (V); e.g. 230, NOT 400 for three-phase:');
+    c.ev.minimumAmps = await numberInput('Charger’s documented supported minimum current (A):');
+    c.ev.confirmed = await confirm({ message: 'I verified phase configuration, line-to-neutral voltage, and minimum current. I will check current EV amperage before making any manual adjustment.', default: false });
+    if (!c.ev.confirmed) throw new SafeError('ev_config_unconfirmed');
+  }
+  if (!s.TELEGRAM_BOT_TOKEN || !await confirm({ message: 'Reuse existing local Telegram settings?', default: true })) {
+    s.TELEGRAM_BOT_TOKEN = await password({ message: 'Telegram bot token from @BotFather:', mask: '*' });
+    s.TELEGRAM_CHAT_ID = await password({ message: 'Telegram chat ID (numeric, may start with -):', mask: '*' });
+  }
+  validateTelegramSecrets(s);
+  if (await confirm({ message: 'Send a live Telegram test message now?', default: true })) {
+    await sendTelegram(s, 'Deye battery monitor: setup test. Notifications only; EV adjustments are manual.');
+    console.log('Telegram API accepted the test message. Check your chat.');
+  }
+  c.enabled = true;
+  validateConfig(c);
+  await saveSecrets(s);
+  await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
+  console.log('Saved ignored wrangler.jsonc and .dev.vars (mode 600). No cloud deployment was performed. Follow README.md to create KV, upload secrets, and deploy.');
+}
+async function preview(): Promise<void> {
+  const w = await config();
+  const c = validateConfig(w.vars.MONITOR_CONFIG);
+  const s = await secrets(false);
+  const raw = await new DeyeClient(c, s).latest();
+  previewFields(raw);
+  console.log('Normalized:', normalizeReading(raw, c, Date.now()));
+}
+async function validateDeploy(): Promise<void> {
+  const w = await config();
+  const c = validateConfig(w.vars.MONITOR_CONFIG);
+  if (!c.enabled) throw new SafeError('monitor_disabled_run_setup_first');
+  if (!w.kv_namespaces?.some(k => k.binding === 'STATE' && /^[a-f0-9]{32}$/.test(k.id))) {
+    throw new SafeError('kv_namespace_id_missing');
+  }
+}
+async function uploadSecrets(): Promise<void> {
+  await validateDeploy();
+  const s = await secrets();
+  const dir = await mkdtemp(join(tmpdir(), 'deye-secrets-'));
+  try {
+    const file = join(dir, 'secrets.json');
+    await writeFile(file, JSON.stringify(s), { mode: 0o600 });
+    const result = spawnSync(process.execPath, [join(root, 'node_modules/wrangler/bin/wrangler.js'),
+      'secret', 'bulk', file, '--config', configPath], { cwd: root, stdio: 'inherit' });
+    if (result.status !== 0) throw new SafeError('secret_upload_failed');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+const command = process.argv[2];
+try {
+  switch (command) {
+    case 'init': await init(); break;
+    case 'setup': await setup(); break;
+    case 'preview': await preview(); break;
+    case 'validate-deploy': await validateDeploy(); break;
+    case 'secrets-upload': await uploadSecrets(); break;
+    case 'telegram-chats': {
+      const s = await secrets(false);
+      const token = s.TELEGRAM_BOT_TOKEN || await password({ message: 'Telegram bot token (hidden):', mask: '*' });
+      validateTelegramSecrets({ TELEGRAM_BOT_TOKEN: token, TELEGRAM_CHAT_ID: '0' });
+      const data = await jsonPost(`https://api.telegram.org/bot${token}/getUpdates`,
+        { timeout: 0, limit: 100, allowed_updates: ['message'] }, {}, defaults, 'telegram', 1);
+      if (data.ok !== true || !Array.isArray(data.result)) throw new SafeError('telegram_updates_rejected');
+      const chats = new Map<string, string>();
+      for (const update of data.result) {
+        const chat = update?.message?.chat;
+        if (chat && (typeof chat.id === 'number' || typeof chat.id === 'string')) {
+          chats.set(String(chat.id), String(chat.type ?? 'unknown'));
+        }
+      }
+      for (const [id, type] of chats) console.log(JSON.stringify({ chatId: id, type }));
+      if (chats.size === 0) console.log('No message updates. Send /start to this bot, then run this command again.');
+      break;
+    }
+    case 'telegram-test': {
+      const s = await secrets(false);
+      await sendTelegram(s, 'Deye battery monitor: Telegram test. If the EV is charging, any adjustment is manual.');
+      console.log('Telegram API accepted the test message. Check your chat.');
+      break;
+    }
+    default: throw new SafeError('unknown_command');
+  }
+} catch (error) {
+  console.error(`Command failed: ${errorCode(error)}. See README.md troubleshooting. No upstream response or secret was logged.`);
+  process.exitCode = 1;
+}

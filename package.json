@@ -1,0 +1,35 @@
+{
+  "name": "deye-battery-notify",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted Deye battery notifications on Cloudflare Workers Free",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "setup": "tsx scripts/cli.ts setup",
+    "preview": "tsx scripts/cli.ts preview",
+    "telegram:test": "tsx scripts/cli.ts telegram-test",
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "test:mock": "tsx scripts/mock-demo.ts",
+    "dev": "tsx scripts/cli.ts init && wrangler dev --test-scheduled",
+    "build": "tsx scripts/cli.ts init && wrangler deploy --dry-run --outdir dist",
+    "deploy": "tsx scripts/cli.ts validate-deploy && wrangler deploy",
+    "secrets:upload": "tsx scripts/cli.ts secrets-upload",
+    "test:runtime": "tsx --test test/runtime/*.test.ts",
+    "telegram:chats": "tsx scripts/cli.ts telegram-chats"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261021.1",
+    "@inquirer/prompts": "^8.0.0",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "miniflare": "^5.20261019.1-beta",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.0.0"
+  }
+}

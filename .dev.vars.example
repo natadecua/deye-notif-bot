@@ -1,0 +1,12 @@
+# Synthetic placeholders only. Copy to .dev.vars or use npm run setup.
+# SHA-256 password hash is an authentication secret, just like the password.
+DEYE_APP_ID="YOUR_APP_ID"
+DEYE_APP_SECRET="YOUR_APP_SECRET"
+DEYE_ACCOUNT="YOUR_EMAIL_OR_USERNAME"
+DEYE_ACCOUNT_FIELD="email"
+DEYE_PASSWORD_SHA256="YOUR_64_CHARACTER_SHA256_PASSWORD_HASH"
+# Optional: business/company context; omit for personal account.
+# DEYE_COMPANY_ID="123"
+# For mobile login also set DEYE_COUNTRY_CODE="44" and field="mobile".
+TELEGRAM_BOT_TOKEN="YOUR_BOT_TOKEN"
+TELEGRAM_CHAT_ID="YOUR_CHAT_ID"

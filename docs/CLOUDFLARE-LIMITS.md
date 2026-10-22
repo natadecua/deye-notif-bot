@@ -1,0 +1,37 @@
+# Workers Free sizing and verified limits
+
+Reviewed **2026-10-21** against Cloudflare's current official documentation. Limits can change; recheck before deployment and account for every other application in your account. Cloudflare's Free account quotas are not dedicated to this Worker.
+
+| Resource | Documented Free limit | One five-minute monitor |
+| --- | --- | --- |
+| Worker invocations/requests | 100,000/day | 288 scheduled invocations/day; 8,640 per 30 days, 8,928 per 31 days |
+| Cron Triggers | 5/account | 1 |
+| Cron CPU | **10 ms/invocation** | Small JSON, state transitions and Web Crypto only; production CPU unmeasured |
+| Memory | 128 MB | Two small KV values and small API responses |
+| External subrequests | 50/invocation | Usually 1 Deye request; at most 6 Deye HTTP attempts + 2 Telegram attempts = 8 |
+| KV reads | 100,000/day | Up to 2/run = 576/day (state + auth cache) |
+| KV writes | 1,000/day | Usually 1/run = 288/day; designed maximum 3/run = **864/day** |
+| Writes to one KV key | 1/second | The two state checkpoints are explicitly spaced ≥ 1.1 seconds |
+| KV storage | 1 GB/account | A few KB for state and token, no growing history |
+| KV deletes / list operations | 1,000/day each | None in normal operation |
+
+The read/write bounds assume a single configured Cron, one Worker, one station, no overlapping/manual invocations, valid KV responses and this implementation's bounded requests. A token is written at most once per invocation: either initially, or after refreshing a cached token. An unsuccessful fresh token is never renewed again in the same run. State is written once before delivery, plus one checkpoint after any attempted Telegram sends. Two pending alerts share that final checkpoint. This gives at most `(2 + 1) × 288 = 864` writes/day even with frequent token renewal. Typical daily use is close to 288 state writes, with rare notification checkpoints and token refreshes. Backoff/disabled runs can use less.
+
+A renewal interval of roughly 60 days appears in Deye's token example; runtime always follows the actual returned `expiresIn`, not a fixed lifetime. Normal Deye polling is approximately 8,640 requests per 30-day month, plus setup/authentication/retries. Current Deye service-model notices discuss upcoming quotas/rate controls; do not assume a perpetual fixed free Deye allowance.
+
+Worker invocation counts are conservatively budgeted against the Free request allowance. There is no dashboard, health-check traffic, public trigger endpoint, queue, paid database or centralized backend. Bundled Worker size from the local dry run is recorded in [validation notes](VALIDATION.md). Libraries used for interactive setup/testing/building are not bundled into the deployed Worker.
+
+**The 10 ms CPU limit is material.** Network waits and timer waits do not count as CPU time, but parsing, hashing, validation and message formatting do. We use a dependency-free runtime and small response/state values. Local Node tests, workerd tests and deployment dry runs do **not** establish production CPU usage or Free-plan viability for every API payload. After live deployment, inspect CPU metrics/errors in your own account, especially cold/authentication runs. Any `Exceeded CPU Time Limits` failures can prevent persistence/delivery. Keep the Free plan; profile/reduce work before considering a different design. This project does not require or automatically enable a paid plan.
+
+KV's one-write-per-second rule cannot be enforced globally by this Worker under concurrency. Do not run multiple Crons/Workers against one namespace or rapidly repeat manual polls. Other workloads can exhaust your account-wide allowance even if this monitor stays within its estimate.
+
+## Sources
+
+- [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.
+- [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/).
+- [KV limits](https://developers.cloudflare.com/kv/platform/limits/).
+- [KV pricing](https://developers.cloudflare.com/kv/platform/pricing/), including Free delete/list allowances.
+- [How KV works](https://developers.cloudflare.com/kv/concepts/how-kv-works/), including eventual consistency and the 60-seconds-or-more caveat.
+- [Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/), including propagation delay up to 15 minutes.
+
+The official HTML pages were partly unavailable to the development environment's HTTP client; the corresponding current source pages in Cloudflare's public [`cloudflare-docs` repository, `production` branch](https://github.com/cloudflare/cloudflare-docs/tree/production/src/content/docs) were retrieved and inspected for all limits above. This is documentation verification, not a test against a live Free account.
