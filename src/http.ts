@@ -28,8 +28,10 @@ export async function jsonPost(url: string, body: unknown, headers: Record<strin
           await response.body?.cancel();
         }
         throw new SafeError(`${service}_http_${response.status === 429 ? 'rate_limited' :
-          response.status === 401 ? 'unauthorized' : response.status >= 500 ? 'server_error' : 'rejected'}`,
-          response.status === 429 || response.status >= 500, retryAt, response.status === 401);
+          response.status === 401 ? 'unauthorized' : response.status === 408 ? 'timeout' :
+            response.status >= 500 ? 'server_error' : 'rejected'}`,
+          response.status === 408 || response.status === 429 || response.status >= 500,
+          retryAt, response.status === 401);
       }
       const raw = await response.text();
       if (raw.length > 256_000) throw new SafeError(`${service}_response_too_large`);
