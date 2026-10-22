@@ -8,6 +8,8 @@ Each installation runs in its owner's Cloudflare account and calls Deye and Tele
 
 **Implementation status:** implemented and validated with synthetic local tests, a local Workers runtime, and a Wrangler deployment dry run. No real Deye credentials or Telegram bot were supplied. Live account access, actual installation units/time formats, live messages, production CPU usage, and cloud scheduling have **not** been validated by this project session. See [validation notes](docs/VALIDATION.md).
 
+See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [seamless Cloudflare/Telegram setup proposal](docs/ONBOARDING.md) for the exact implemented feature checklist and the expanded roadmap. Telegram settings menus, Deepal 8 A/13 A/MAX session tracking, pause recommendations and weather/history planning are **not implemented yet**. The current setup is the laptop wizard described below.
+
 ## Alerts
 
 - Full charge: SOC **≥ 100%** by default; once per cycle, rearmed strictly **below 97%**. The threshold is configurable. Starting the monitor while already full produces a full alert.
