@@ -15,6 +15,7 @@ import { defaults } from '../src/types.ts';
 import type { Config, Secrets } from '../src/types.ts';
 import { configurePreferences, type InputValidator, type PreferencePrompts } from './preferences.ts';
 import { ownerCandidates, telegramSetupHint, webhookRegistration } from './telegram-onboarding.ts';
+import { configureDaytime } from './daytime-preferences.ts';
 
 // Resolve against this repository, even if the command is launched elsewhere.
 const root = fileURLToPath(new NodeURL('../', import.meta.url));
@@ -184,6 +185,13 @@ try {
       w.vars.MONITOR_CONFIG = await configurePreferences(w.vars.MONITOR_CONFIG, preferencePrompts);
       await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
       console.log('Saved preferences in ignored wrangler.jsonc. No Deye/Telegram calls or deployment were made. Run npm run deploy to apply them to your existing installation.');
+      break;
+    }
+    case 'daytime-setup': {
+      const w = await config();
+      w.vars.MONITOR_CONFIG = await configureDaytime(w.vars.MONITOR_CONFIG, preferencePrompts);
+      await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
+      console.log('Saved daytime preferences in ignored wrangler.jsonc. No provider calls or deployment were made. Run npm run deploy to apply to an existing installation.');
       break;
     }
     case 'telegram-setup': {

@@ -33,13 +33,14 @@ export function prepareDeployment(env: Environment): DeploymentConfig {
   const source = only(parsed, [...Object.keys(template), 'account_id', 'send_metrics']);
   if (source.account_id !== undefined && source.account_id !== account) throw new SafeError('ci_account_mismatch');
   const vars = only(source.vars, ['MONITOR_CONFIG']);
-  const monitor = only(vars.MONITOR_CONFIG, Object.keys(template.vars.MONITOR_CONFIG));
+  const monitor = only(vars.MONITOR_CONFIG, [...Object.keys(template.vars.MONITOR_CONFIG), 'daytimeDischarge']);
   const ev = only(monitor.ev, ['enabled', 'confirmed', 'phases', 'voltage', 'minimumAmps', 'profiles']);
   if (Array.isArray(ev.profiles)) for (const profile of ev.profiles) {
     only(profile, ['id', 'label', 'type', 'amps', 'nominalWatts']);
   }
   if (monitor.notifications !== undefined) only(monitor.notifications, ['full', 'discharge']);
   if (monitor.telegram !== undefined) only(monitor.telegram, ['enabled']);
+  if (monitor.daytimeDischarge !== undefined) only(monitor.daytimeDischarge, ['timeZone', 'startHour', 'endHour', 'minimumMinutes']);
   const config = validateConfig(monitor);
   if (!config.enabled) throw new SafeError('ci_monitor_disabled');
   const triggers = only(source.triggers, ['crons']);

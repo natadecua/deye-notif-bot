@@ -1,5 +1,6 @@
 import type { Config } from './types.ts';
 import { notificationPreferences, validateConfig } from './config.ts';
+import { daytimeSummary } from './daytime.ts';
 
 export type SettingsOverrides = Pick<Config, 'notifications' | 'fullSoc' | 'fullRearmSoc' |
   'dischargeWatts' | 'dischargeRearmWatts'>;
@@ -14,7 +15,7 @@ export function applyTelegramCommand(config: Config, text: string): { config: Co
   const unchanged = (reply: string) => ({ config, changed: false, reply });
   if (command === 'settings' && !argument) {
     const p = notificationPreferences(config);
-    return unchanged(`⚙️ Battery notifications\n\nBattery full: ${p.full ? 'on' : 'off'} at ${config.fullSoc}%\nBattery supplying power: ${p.discharge ? 'on' : 'off'} above ${config.dischargeWatts} W\n\n${usage}\n/settings reset restores deployment preferences.`);
+    return unchanged(`⚙️ Battery notifications\n\nBattery full: ${p.full ? 'on' : 'off'} at ${config.fullSoc}%\nBattery supplying power: ${p.discharge ? 'on' : 'off'} above ${config.dischargeWatts} W${config.daytimeDischarge ? `\nDaytime rule: ${daytimeSummary(config)}` : ''}\n\n${usage}\n/settings reset restores deployment preferences.`);
   }
   const next = structuredClone(config);
   if (['full', 'discharge'].includes(command) && ['on', 'off'].includes(argument ?? '')) {

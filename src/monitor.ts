@@ -1,4 +1,4 @@
-import { alertText, decodeState, expirePending, resetAfterGap, transition } from './alerts.ts';
+import { alertText, decodeState, expirePending, resetAfterGap, resetDischargeConfirmation, transition } from './alerts.ts';
 import { notificationEnabled, validateConfig } from './config.ts';
 import { DeyeClient } from './deye.ts';
 import { errorCode, SafeError } from './errors.ts';
@@ -6,6 +6,7 @@ import { normalizeReading } from './reading.ts';
 import { sendTelegram, validateTelegramSecrets } from './telegram.ts';
 import { defaults, type Dependencies, type Env } from './types.ts';
 import { BOT_KEY, activeChargingSession, decodeBotState } from './bot-state.ts';
+import { dischargeWindowOpen } from './daytime.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -37,13 +38,13 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     // hysteresis hasn't rearmed yet. Do not send outdated amperage advice.
     if (eligibleToSend) {
       state.pending = state.pending.filter(a => a.kind === 'full' ? reading.soc >= c.fullSoc :
-        reading.dischargeWatts > c.dischargeWatts);
+        reading.dischargeWatts > c.dischargeWatts && dischargeWindowOpen(c, reading.at, deps.now()));
       for (const a of state.pending) a.reading = reading;
     }
     state.apiFailures = 0;
     state.apiRetryAt = 0;
   } catch (error) {
-    state.highCount = 0;
+    resetDischargeConfirmation(state);
     state.apiFailures = Math.min(state.apiFailures + 1, 10);
     // Non-transient errors get a one-hour cooldown; transient failures 5/10/20/40/60m.
     const telemetryError = /^(reading_|timestamp_|measurement_)/.test(errorCode(error));
@@ -61,6 +62,11 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   let changed = false;
   for (const a of [...state.pending]) {
     if (a.nextAttemptAt > deps.now()) continue;
+    if (a.kind === 'discharge' && !dischargeWindowOpen(c, a.reading.at, deps.now())) {
+      state.pending = state.pending.filter(p => p.id !== a.id);
+      changed = true;
+      continue;
+    }
     // Increment in memory; checkpoint after delivery. Crash after a send can still
     // duplicate it. KV is not a transaction or global lock; exactly-once is impossible.
     a.attempts++;

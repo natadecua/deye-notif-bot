@@ -33,6 +33,27 @@ Messages use clear event titles, separate charge/power lines and readable UTC so
 
 The example has EV hints enabled. The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp. A valid manual charging report replaces “EV charging: unknown” with the owner's report and expiry; the household/EV power split remains unknown. A “not charging” report hides reduction/profile advice until the report expires or changes. If you configure discrete charging profiles, the message instead lists only those supported choices with nominal power estimates; it does not propose an unsupported intermediate reduction or infer MAX amperage. No profile is selected automatically.
 
+## Optional daytime battery-use alert
+
+To allow short cloud dips, use `npm run daytime:setup`. This offline wizard lets you choose the installation timezone, a fixed daytime window and the minimum high-discharge duration. It saves only the ignored local settings; apply them to an existing Worker with a separate manual deployment. For Batangas City, use **Asia/Manila**, the editable **06:00–18:00** window and **15 minutes**. The existing watt trigger stays **above 300 W** unless changed in preferences. These are owner-selected settings, not defaults for every installation.
+
+During that window, fresh high-discharge samples must span at least 15 minutes before the alert. With normal five-minute samples this takes four readings. A low/invalid sample or a long gap restarts confirmation; repeated timestamps do not advance it. The alert stays latched until power falls below the existing rearm threshold, and starts a fresh cycle in the next local daytime window. Nighttime discharge alerts and after-window retries are suppressed; full-battery alerts keep their existing behavior. Sampling cannot establish uninterrupted discharge between readings.
+
+The new message starts **☀️ Daytime battery use**, followed by battery discharge, SOC, the duration and configured window. It reports measured battery use regardless of whether an EV session is known. Optional charging reports/advice remain separate. This does not yet implement overnight reserve planning or weather forecasts.
+
+For private configuration/CI, the optional `MONITOR_CONFIG` property is:
+
+```json
+"daytimeDischarge": {
+  "timeZone": "Asia/Manila",
+  "startHour": 6,
+  "endHour": 18,
+  "minimumMinutes": 15
+}
+```
+
+Omit that property to retain the original all-day/two-reading rule, or restore that rule through the same wizard. Changing only the daytime policy cancels old discharge advice and resets its confirmation while preserving full-charge cycles. `/settings` shows the active rule when optional bot commands are enabled. See [weather options and limits](docs/RESERVE-ALERTS.md#optional-weather-context) for the next step.
+
 ## Local setup
 
 Use Node.js **22.13 or newer**, npm, a DeyeCloud account with an OpenAPI application, a Telegram account/bot, and your own Cloudflare **Workers Free** account. Clone the repository onto your laptop:

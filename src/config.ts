@@ -1,6 +1,7 @@
 import type { Alert, Config, NotificationPreferences } from './types.ts';
 import { SafeError } from './errors.ts';
 import { validateChargingProfiles } from './profiles.ts';
+import { validateDaytime } from './daytime.ts';
 
 export const HOSTS = {
   eu: 'https://eu1-developer.deyecloud.com/v1.0',
@@ -36,6 +37,7 @@ export function validateConfig(raw: unknown): Config {
     throw new SafeError('notification_preferences_invalid');
   }
   validateChargingProfiles(c.ev);
+  validateDaytime(c.daytimeDischarge);
   if (c.telegram !== undefined && (!c.telegram || Array.isArray(c.telegram) ||
       typeof c.telegram.enabled !== 'boolean')) throw new SafeError('telegram_preferences_invalid');
   return c;

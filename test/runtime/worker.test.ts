@@ -4,6 +4,8 @@ import { fileURLToPath, URL as NodeURL } from 'node:url';
 import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions, Response as LocalResponse, type Request as LocalRequest, Log, LogLevel } from 'miniflare';
 import { config, fixture, syntheticSecrets, tokenFixture } from '../helpers.ts';
+import { initialState } from '../../src/alerts.ts';
+import { daytimePeriod } from '../../src/daytime.ts';
 
 test('real workerd scheduled handler with local KV and entirely synthetic outbound services', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
@@ -142,5 +144,46 @@ test('workerd authenticates webhook status and charging buttons using local KV a
     const stored = await kv.get('telegram:v1', 'json') as { session: { source: string } };
     assert.equal(stored.session.source, 'manual');
     assert.equal((await runtime.dispatchFetch('https://synthetic.invalid/')).status, 404);
+  } finally { await runtime.dispose(); }
+});
+
+test('workerd resumes a synthetic daytime confirmation and sends the duration-aware alert', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  // Avoid a local-date rollover in this test regardless of the runner's clock hour.
+  const manilaHour = (new Date().getUTCHours() + 8) % 24;
+  const timeZone = [0, 23].includes(manilaHour) ? 'UTC' : 'Asia/Manila';
+  const c = config({ daytimeDischarge: { timeZone, startHour: 0, endHour: 24, minimumMinutes: 15 } });
+  const messages: string[] = [];
+  const runtime = new Miniflare(convertV4MiniflareOptions({
+    modules: true, script: bundled.outputFiles[0].text, cf: false,
+    compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: c },
+    outboundService: async (request: LocalRequest) => {
+      const path = new URL(request.url).pathname;
+      let body: unknown;
+      if (path.endsWith('/account/token')) body = tokenFixture;
+      else if (path.endsWith('/station/latest')) body = { ...fixture, batterySOC: 80, dischargePower: 500,
+        lastUpdateTime: new Date(Date.now() - 1000).toISOString() };
+      else if (path.endsWith('/sendMessage')) { messages.push((await request.json() as { text: string }).text); body = { ok: true }; }
+      else throw new Error('Unexpected synthetic daytime request');
+      return new LocalResponse(JSON.stringify(body));
+    },
+  }));
+  try {
+    const now = Date.now(), s = initialState(c);
+    s.lastReadingAt = now - 300_000;
+    s.latestReading = { at: s.lastReadingAt, soc: 80, dischargeWatts: 500 };
+    s.highCount = 2; s.highStartedAt = now - 905_000;
+    s.dischargeDay = daytimePeriod(now, c.daytimeDischarge!);
+    const kv = await runtime.getKVNamespace('STATE');
+    await kv.put('monitor:v1', JSON.stringify(s));
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    const worker = await runtime.getWorker();
+    await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date() });
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /Daytime battery use/);
+    assert.match(messages[0], /spanning at least 15 minutes/);
+    assert.doesNotMatch(messages[0], /EV|forecast|weather/i);
   } finally { await runtime.dispose(); }
 });

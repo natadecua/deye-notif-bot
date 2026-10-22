@@ -64,6 +64,7 @@ Current normalized runtime readings retain only timestamp, house-battery SOC and
 | Independent full/discharge notification selection | Implemented in the laptop preferences/setup wizard |
 | Telegram onboarding/settings commands and charging buttons | Optional local pairing, webhook/menu registration and owner settings implemented; richer in-chat onboarding remains planned |
 | Quiet hours, local timezone scheduling and daily recap | Not implemented |
+| Daytime-only battery-discharge alerts | Opt-in fixed local window and elapsed sample duration implemented; Batangas example is Asia/Manila, 06:00–18:00, 15 minutes; manual setup/deployment still required |
 | Custom discrete current/power profiles, including 8 A / 13 A / MAX | Implemented for setup and message display; MAX power is explicitly entered |
 | Manual charging-session acknowledgement and expiry | Implemented with a six-hour expiry, manual evidence and optional reported profile ID |
 | Confirmed automatic EV charging detection | No data source established; not implemented |

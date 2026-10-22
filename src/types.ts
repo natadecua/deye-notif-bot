@@ -14,6 +14,12 @@ export interface EVConfig {
   minimumAmps?: number;
   profiles?: ChargingProfile[];
 }
+export interface DaytimeDischarge {
+  timeZone: string;
+  startHour: number;
+  endHour: number;
+  minimumMinutes: number;
+}
 export interface Config {
   enabled: boolean;
   region: 'eu' | 'am' | 'india';
@@ -31,6 +37,7 @@ export interface Config {
   // Omitted in older installations: both notification categories remain enabled.
   notifications?: NotificationPreferences;
   telegram?: { enabled: boolean };
+  daytimeDischarge?: DaytimeDischarge;
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -71,6 +78,9 @@ export interface State {
   fullArmed: boolean;
   dischargeArmed: boolean;
   highCount: number;
+  highStartedAt?: number;
+  dischargeDay?: string;
+  dischargePolicyIdentity?: string;
   pending: Alert[];
   apiFailures: number;
   apiRetryAt: number;

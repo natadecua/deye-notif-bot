@@ -3,11 +3,29 @@ import { notificationEnabled, stateIdentity } from './config.ts';
 import { SafeError } from './errors.ts';
 import { chargingProfileReference } from './profiles.ts';
 import { activeChargingSession, chargingSummary, type BotState } from './bot-state.ts';
+import { daytimeIdentity, daytimePeriod, daytimeSummary, dischargeWindowOpen } from './daytime.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
 export function initialState(c: Config): State {
   return { version: 1, identity: stateIdentity(c), fullArmed: true, dischargeArmed: true,
-    highCount: 0, pending: [], apiFailures: 0, apiRetryAt: 0 };
+    highCount: 0, pending: [], apiFailures: 0, apiRetryAt: 0,
+    ...(c.daytimeDischarge ? { dischargePolicyIdentity: daytimeIdentity(c) } : {}) };
+}
+export function resetDischargeConfirmation(s: State): void {
+  s.highCount = 0;
+  delete s.highStartedAt;
+}
+function syncDaytimePolicy(s: State, c: Config): State {
+  const identity = daytimeIdentity(c);
+  if (s.dischargePolicyIdentity !== identity) {
+    s.dischargeArmed = true;
+    resetDischargeConfirmation(s);
+    delete s.dischargeDay;
+    s.pending = s.pending.filter(a => a.kind !== 'discharge');
+    if (identity === undefined) delete s.dischargePolicyIdentity;
+    else s.dischargePolicyIdentity = identity;
+  }
+  return s;
 }
 export function decodeState(value: string | null, c: Config): State {
   if (value === null) return initialState(c);
@@ -18,6 +36,9 @@ export function decodeState(value: string | null, c: Config): State {
   if (!s || s.version !== 1 || typeof s.identity !== 'string' ||
       typeof s.fullArmed !== 'boolean' || typeof s.dischargeArmed !== 'boolean' ||
       !Number.isInteger(s.highCount) || s.highCount < 0 || s.highCount > 2 ||
+      (s.highStartedAt !== undefined && (!finite(s.highStartedAt) || s.lastReadingAt === undefined || s.highStartedAt > s.lastReadingAt)) ||
+      (s.dischargeDay !== undefined && (typeof s.dischargeDay !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s.dischargeDay))) ||
+      (s.dischargePolicyIdentity !== undefined && (typeof s.dischargePolicyIdentity !== 'string' || s.dischargePolicyIdentity.length > 256)) ||
       !Number.isInteger(s.apiFailures) || s.apiFailures < 0 || !finite(s.apiRetryAt) ||
       (s.lastReadingAt !== undefined && !finite(s.lastReadingAt)) ||
       (s.latestReading !== undefined && (!s.latestReading || !finite(s.latestReading.at) ||
@@ -31,7 +52,7 @@ export function decodeState(value: string | null, c: Config): State {
     throw new SafeError('state_invalid');
   }
   const identity = stateIdentity(c);
-  if (s.identity === identity) return s;
+  if (s.identity === identity) return syncDaytimePolicy(s, c);
   // Before profile/preferences support the identity appended the EV object.
   // Migrate that metadata without rearming otherwise identical battery cycles.
   try {
@@ -39,7 +60,7 @@ export function decodeState(value: string | null, c: Config): State {
     if (Array.isArray(legacy) && legacy.length === 11 &&
         JSON.stringify(legacy.slice(0, 10)) === identity) {
       s.identity = identity;
-      return s;
+      return syncDaytimePolicy(s, c);
     }
   } catch { /* An unrecognized identity starts a new measurement interpretation. */ }
   return initialState(c);
@@ -48,13 +69,13 @@ export function expirePending(s: State, now: number): void {
   s.pending = s.pending.filter(a => now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3);
 }
 export function resetAfterGap(s: State, c: Config, now: number): void {
-  if (s.lastReadingAt === undefined || now - s.lastReadingAt > c.maxGapSeconds * 1000) s.highCount = 0;
+  if (s.lastReadingAt === undefined || now - s.lastReadingAt > c.maxGapSeconds * 1000) resetDischargeConfirmation(s);
 }
 export function transition(s: State, r: Reading, c: Config, now: number): 'accepted' | 'duplicate' | 'out_of_order' {
   if (s.lastReadingAt !== undefined && r.at <= s.lastReadingAt) {
     return r.at === s.lastReadingAt ? 'duplicate' : 'out_of_order';
   }
-  if (s.lastReadingAt === undefined || r.at - s.lastReadingAt > c.maxGapSeconds * 1000) s.highCount = 0;
+  if (s.lastReadingAt === undefined || r.at - s.lastReadingAt > c.maxGapSeconds * 1000) resetDischargeConfirmation(s);
   s.lastReadingAt = r.at;
   s.latestReading = { ...r };
   const enqueue = (kind: Alert['kind']) => {
@@ -70,15 +91,34 @@ export function transition(s: State, r: Reading, c: Config, now: number): 'accep
     s.fullArmed = false;
     enqueue('full');
   }
+  if (c.daytimeDischarge) {
+    if (!dischargeWindowOpen(c, r.at, now)) {
+      resetDischargeConfirmation(s);
+      s.pending = s.pending.filter(a => a.kind !== 'discharge');
+      return 'accepted';
+    }
+    const day = daytimePeriod(r.at, c.daytimeDischarge)!;
+    if (day !== s.dischargeDay) {
+      s.dischargeDay = day;
+      s.dischargeArmed = true;
+      resetDischargeConfirmation(s);
+      s.pending = s.pending.filter(a => a.kind !== 'discharge');
+    }
+  }
   if (r.dischargeWatts < c.dischargeRearmWatts) {
     s.dischargeArmed = true;
     s.pending = s.pending.filter(a => a.kind !== 'discharge');
   }
   if (s.dischargeArmed) {
-    s.highCount = r.dischargeWatts > c.dischargeWatts ? Math.min(2, s.highCount + 1) : 0;
-    if (s.highCount >= 2) {
+    if (r.dischargeWatts > c.dischargeWatts) {
+      if (c.daytimeDischarge && s.highCount === 0) s.highStartedAt = r.at;
+      s.highCount = Math.min(2, s.highCount + 1);
+    } else resetDischargeConfirmation(s);
+    const durationMet = !c.daytimeDischarge || (s.highStartedAt !== undefined &&
+      r.at - s.highStartedAt >= c.daytimeDischarge.minimumMinutes * 60_000);
+    if (s.highCount >= 2 && durationMet) {
       s.dischargeArmed = false;
-      s.highCount = 0;
+      resetDischargeConfirmation(s);
       enqueue('discharge');
     }
   }
@@ -99,7 +139,10 @@ export function alertText(a: Alert, c: Config, context?: { bot?: BotState; now: 
     const target = c.fullSoc === 100 ? '' : `\nAlert target: ${c.fullSoc}%`;
     return `${title}\n\nCharge: ${a.reading.soc}%${target}${footer}`;
   }
-  let text = `⚡ House battery supplying power\n\nBattery discharge: ${Math.round(a.reading.dischargeWatts)} W\nCharge: ${a.reading.soc}%\nAbove ${c.dischargeWatts} W in two distinct readings.\n\n${batteryLoadSummary(c)}`;
+  const title = c.daytimeDischarge ? '☀️ Daytime battery use' : '⚡ House battery supplying power';
+  const confirmation = c.daytimeDischarge ? `Above ${c.dischargeWatts} W across readings spanning at least ${c.daytimeDischarge.minimumMinutes} minutes.\nWindow: ${daytimeSummary(c)}.` :
+    `Above ${c.dischargeWatts} W in two distinct readings.`;
+  let text = `${title}\n\nBattery discharge: ${Math.round(a.reading.dischargeWatts)} W\nCharge: ${a.reading.soc}%\n${confirmation}\n\n${batteryLoadSummary(c)}`;
   const session = context ? activeChargingSession(context.bot, context.now) : undefined;
   if (c.ev.enabled) {
     text += `\n\n${context ? chargingSummary(context.bot, c, context.now) : 'EV charging: unknown'}`;

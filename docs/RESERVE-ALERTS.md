@@ -1,6 +1,8 @@
 # Preserve the house battery while charging the EV
 
-Status: **proposed behavior, not implemented or deployed**. This refines the reserve/planner requirements following the owner's clarification. Existing full/discharge alerts and the optional manual charging reports retain their current behavior.
+Reserve-planner status: **proposed behavior, not implemented or deployed**. This refines the reserve/planner requirements following the owner's clarification. The simpler daytime-discharge slice below is implemented separately; full alerts and optional manual charging reports retain their rules.
+
+Latest clarification: the owner chose **Batangas City** and **15 minutes** of discharge tolerance. A simpler opt-in daytime battery-use alert is now implemented in the proposed PR, with an explicit **Asia/Manila** timezone and an editable fixed **06:00–18:00** window suggested in the conversation. This adds no weather dependency and does not implement the reserve planner described below. Personal configuration/production deployment remain manual. The offline setup is `npm run daytime:setup`.
 
 ## Owner goal
 
@@ -58,3 +60,11 @@ The initial runtime slice should use explicitly chosen day/night windows and res
 - Distinguish local/synthetic checks from actual installation validation. No guarantee that a chosen reserve will last the night or that a message will arrive in time.
 
 Next implementation milestone: agree the missing owner inputs, then add one opt-in reserve-warning journey with tests, setup/status visibility, bounded state and manual production deployment.
+
+## Optional weather context
+
+Provider research checked on **2026-10-22**: [Open-Meteo's terms](https://open-meteo.com/en/terms) explicitly allow the free service for personal home automation; its [official project](https://github.com/open-meteo/open-meteo) states no API key is required. The free public service is for non-commercial use with attribution and request limits (below 10,000/day in the terms); it is not a universal free commercial-use promise. Its [forecast documentation](https://open-meteo.com/en/docs) exposes cloud cover and shortwave solar radiation. Those are weather-model forecasts, not the installation's measured PV output or an EV-charging detector. A city-level location is sufficient for an initial context lookup; precise house coordinates and provider credentials are unnecessary.
+
+Recommended next weather slice: one bounded periodic request, a small owner-local cache with fetched/forecast timestamps, and an optional forecast-context line on measured daytime alerts. Start with an hourly refresh design (about 24 requests/day) and re-budget cache writes/CPU/retries before coding it. Missing/stale weather must never suppress a measured battery-use alert. Add attribution where forecast data is displayed. Do not promise a cloud's clearing time or infer a precise charging window from cloud percentage alone; site-specific PV estimates need confirmed array data and comparison with real production. Weather integration has **not** been implemented or live-tested.
+
+[Forecast.Solar's free public API](https://forecast.solar/index.html) is another option for solar-production forecasts, with today/tomorrow and hourly resolution in the published plan. It requires installation details to make the result useful. Open-Meteo is the simpler initial weather-context option; a full solar/EV planner remains a later, separately validated feature.

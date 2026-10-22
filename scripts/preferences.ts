@@ -2,6 +2,7 @@ import type { ChargingProfile, Config, EVConfig, NotificationPreferences } from 
 import { notificationPreferences, validateConfig } from '../src/config.ts';
 import { SafeError } from '../src/errors.ts';
 import { MAX_PROFILES, MAX_PROFILE_AMPS, profileSummary, validateChargingProfiles } from '../src/profiles.ts';
+import { daytimeSummary } from '../src/daytime.ts';
 
 export type InputValidator<T> = (value: T) => true | string;
 export interface PreferencePrompts {
@@ -87,7 +88,7 @@ export function preferencesSummary(c: Config): string {
   const n = notificationPreferences(c);
   const lines = [
     `Battery full: ${n.full ? `on at ${c.fullSoc}% SOC; re-arm below ${c.fullRearmSoc}%` : 'off'}`,
-    `Battery supplying power: ${n.discharge ? `on above ${c.dischargeWatts} W in two distinct fresh readings; re-arm below ${c.dischargeRearmWatts} W` : 'off'}`,
+    `Battery supplying power: ${n.discharge ? `on above ${c.dischargeWatts} W ${c.daytimeDischarge ? `during ${daytimeSummary(c)}` : 'in two distinct fresh readings'}; re-arm below ${c.dischargeRearmWatts} W` : 'off'}`,
     `Manual EV hints: ${c.ev.enabled ? n.discharge ? 'on; EV status/current remain unknown' :
       'saved, but discharge notifications are off' : 'off'}`,
   ];
@@ -108,7 +109,7 @@ export async function configurePreferences(source: Config, p: PreferencePrompts)
       n => Number.isFinite(n) && n > 0 && n <= 100 || 'Enter a percentage above 0 and at most 100.');
     c.fullRearmSoc = await p.number('Re-arm the full alert strictly below SOC (%):', c.fullRearmSoc,
       n => Number.isFinite(n) && n >= 0 && n < c.fullSoc || 'The re-arm SOC must be below the full threshold.');
-    c.dischargeWatts = await p.number('Discharge must exceed this many watts in two distinct fresh readings:', c.dischargeWatts,
+    c.dischargeWatts = await p.number('Discharge must exceed this many watts for the configured confirmation rule:', c.dischargeWatts,
       n => Number.isFinite(n) && n > 0 || 'Enter a positive watt threshold.');
     c.dischargeRearmWatts = await p.number('Re-arm the discharge alert strictly below (W):', c.dischargeRearmWatts,
       n => Number.isFinite(n) && n >= 0 && n < c.dischargeWatts || 'The re-arm watts must be below the discharge threshold.');
