@@ -147,4 +147,4 @@ To pause, remove the Cron in Cloudflare's dashboard, or set `MONITOR_CONFIG.enab
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [security guidance](SECURITY.md), [MIT license](LICENSE), and [API verification notes](docs/DEYE-API.md). Fixtures in `test/fixtures/` are explicitly synthetic, not recordings from a real installation. New schemas or device adapters need sanitized, consented evidence and tests before they can be treated as verified integrations.
+See the [related-project comparison](docs/RELATED-PROJECTS.md), [CONTRIBUTING.md](CONTRIBUTING.md), [security guidance](SECURITY.md), [MIT license](LICENSE), and [API verification notes](docs/DEYE-API.md). Fixtures in `test/fixtures/` are explicitly synthetic, not recordings from a real installation. New schemas or device adapters need sanitized, consented evidence and tests before they can be treated as verified integrations.

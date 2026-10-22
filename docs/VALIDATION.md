@@ -31,3 +31,20 @@ These actions belong to the installation owner and use their own accounts:
 3. Create a dedicated KV namespace, upload secrets and deploy following README.md.
 4. Allow Cron propagation, inspect `wrangler tail` and account CPU/quota metrics. Verify new distinct telemetry timestamps arrive. Check actual full-charge/rearm and discharge/rearm cycles as they occur naturally.
 5. Record any installation-specific live findings separately from these synthetic test results. Keep identifiers, tokens, request URLs and raw response bodies out of public reports.
+
+
+## Follow-up: TDD and repository preparation (2026-10-22)
+
+The initial implementation already had passing tests, but no claim is made that it was originally developed test-first. Its baseline was committed as `e1db47b` after all 63 unit/functional tests, the workerd test, strict type checking and a Wrangler dry run passed again.
+
+A real HTTP 408 defect was then reproduced using TDD. The old client treated a server-side request timeout as a permanent rejection: Deye read requests were not retried, and pending Telegram alerts were abandoned. Two regression tests were written before implementation and committed separately as `29f40e2`.
+
+Red command:
+
+```sh
+npx tsx --test --test-name-pattern='HTTP 408' test/integrations.test.ts test/monitor.test.ts
+```
+
+Observed before the fix: **2 failed**, with `deye_http_rejected` / `retryable: false` and an empty pending Telegram outbox where one pending event was expected. After classifying HTTP 408 as transient, the same command produced **2 passed**. Deye uses its existing bounded retry/backoff; Telegram uses its existing persistent retry queue. Ambiguous timeout delivery can still duplicate a Telegram message, as already documented.
+
+Final local verification passed: **65 unit/functional tests plus 1 workerd test**, strict TypeScript checking and a Wrangler deployment dry run. The follow-up bundle is 19.93 KiB uncompressed / 6.14 KiB gzip. No new dependencies, paid service, equipment controls or live integration testing were added. TDD is now documented in CONTRIBUTING.md and AGENTS.md for future work. The related-project search is recorded in RELATED-PROJECTS.md; third-party projects were inspected, not deployed.
