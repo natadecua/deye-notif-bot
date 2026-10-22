@@ -6,6 +6,8 @@ A small, MIT-licensed Cloudflare Worker that sends Telegram messages about a hou
 
 Each installation runs in its owner's Cloudflare account and calls Deye and Telegram directly. There is no shared credential service.
 
+GitHub Actions validates pull requests and pushes to `main` on Node.js 22 and 24. An optional manual Cloudflare deployment workflow reruns all checks before releasing from `main`; configure the owner's `production` environment first. See [CI/CD setup](docs/CI-CD.md).
+
 **Implementation status:** implemented and validated with synthetic local tests, a local Workers runtime, and a Wrangler deployment dry run. No real Deye credentials or Telegram bot were supplied. Live account access, actual installation units/time formats, live messages, production CPU usage, and cloud scheduling have **not** been validated by this project session. See [validation notes](docs/VALIDATION.md).
 
 See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [seamless Cloudflare/Telegram setup proposal](docs/ONBOARDING.md) for the exact implemented feature checklist and the expanded roadmap. Independent notification switches and configurable charging profiles are implemented in the laptop wizard. Telegram settings menus, charging-session tracking, automatic profile selection, pause recommendations and weather/history planning are **not implemented yet**. The current setup is the laptop wizard described below.

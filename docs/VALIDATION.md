@@ -74,3 +74,13 @@ The Worker dry-run bundle is approximately **24.37 KiB** / **7.15 KiB gzip**. No
 An additional offline-threshold test first failed before the advanced preference step existed; thresholds and freshness can now be edited without redoing Deye authentication. The final interface keeps the previously verified settings unless the user chooses to change them. Preference edits still require deployment to affect an existing cloud Worker.
 
 Final local verification for this slice passed: **97 unit/functional tests and two workerd runtime tests (99 total)**, strict TypeScript checking, the synthetic mock demonstration and the Wrangler deployment dry run. These results establish local/mock behavior only; the live-integration and production checks listed above remain outstanding.
+
+## Follow-up: GitHub CI and manual Cloudflare delivery (2026-10-22)
+
+The existing GitHub workflow was expanded into reusable validation on Node.js 22/24, automatic pull-request/main validation and manual runs. Added a manual main-only production deployment workflow, serialized releases, pinned actions, monthly action-update proposals, and owner-environment setup documentation. Deye/Telegram credentials remain in Cloudflare; deployment uses only the owner's Cloudflare token/account and a private installation-configuration snapshot.
+
+Seven acceptance tests were added before the deployment adapter implementation. Against an explicit unavailable-adapter scaffold, `npx tsx --test test/ci-deploy.test.ts` produced **7 expected failures** for preserving confirmed settings, rejecting missing/unsafe configuration, enforcing deployment policy and sequencing persistence/deployment/failure handling. After implementation all seven pass. Tests inject writes and the deployment command; none calls a real Cloudflare API.
+
+Validation was performed in a clean managed worktree based on committed `8475a37`, preserving the original checkout's unrelated unfinished changes. This proposed CI/CD revision passes `npm run check`, **104 unit/functional tests**, **2 local workerd tests**, the synthetic demonstration and the Wrangler deployment dry run (**24.37 KiB / 7.15 KiB gzip**). Workflow files pass **actionlint 1.7.12**, downloaded from its official release with its published archive checksum verified. These local commands ran on Node.js 22.19.0. The deployment helper is laptop/CI tooling and does not add runtime dependencies or change the Worker bundle.
+
+Hosted GitHub execution is recorded separately after publication. No production deployment, real provider notification or production CPU test was performed for this slice. A GitHub runner requires the owner-specific environment secrets in [CI/CD setup](CI-CD.md); an authenticated local connector is not a runner credential.
