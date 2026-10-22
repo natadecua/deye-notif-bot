@@ -72,6 +72,7 @@ Current normalized runtime readings retain only timestamp, house-battery SOC and
 | Car-target/house-battery-reserve handling | Not implemented |
 | History collection, learned household baseline and solar pattern | Not implemented |
 | Weather-adjusted charging windows and departure grid fallback | Not implemented |
+| Optional cloud/radiation context on discharge alerts | Opt-in Open-Meteo client/cache and offline setup implemented; hourly model forecasts do not constitute an EV/solar charging plan |
 
 ## 4. Proposed onboarding experience
 

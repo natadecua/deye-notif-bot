@@ -95,6 +95,7 @@ export function preferencesSummary(c: Config): string {
   if (c.ev.enabled && c.ev.profiles?.length) {
     lines.push('Supported settings: ' + c.ev.profiles.map(profile => profileSummary(profile, c.ev)).join('; '));
   }
+  if (c.weather !== undefined) lines.push(`Weather context: ${c.weather.enabled ? 'on (Open-Meteo; no EV detection or charging plan)' : 'off'}`);
   if (!n.full && !n.discharge) lines.push('All battery notifications are off. Cycles will still be tracked while the monitor runs.');
   lines.push('Advice only; no inverter or charger controls. Forecast planning and Telegram settings menus are not active.');
   return lines.join('\n');

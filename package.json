@@ -25,7 +25,8 @@
     "telegram:setup": "tsx scripts/cli.ts telegram-setup",
     "telegram:webhook": "tsx scripts/cli.ts telegram-webhook",
     "preferences": "tsx scripts/cli.ts preferences",
-    "daytime:setup": "tsx scripts/cli.ts daytime-setup"
+    "daytime:setup": "tsx scripts/cli.ts daytime-setup",
+    "weather:setup": "tsx scripts/cli.ts weather-setup"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",

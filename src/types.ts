@@ -20,6 +20,12 @@ export interface DaytimeDischarge {
   endHour: number;
   minimumMinutes: number;
 }
+export interface WeatherConfig {
+  enabled: boolean;
+  latitude?: number;
+  longitude?: number;
+  nonCommercialConfirmed?: boolean;
+}
 export interface Config {
   enabled: boolean;
   region: 'eu' | 'am' | 'india';
@@ -38,6 +44,7 @@ export interface Config {
   notifications?: NotificationPreferences;
   telegram?: { enabled: boolean };
   daytimeDischarge?: DaytimeDischarge;
+  weather?: WeatherConfig;
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -81,6 +88,8 @@ export interface State {
   highStartedAt?: number;
   dischargeDay?: string;
   dischargePolicyIdentity?: string;
+  // Optional context is decoded independently so corrupt weather cannot stop alerts.
+  weather?: unknown;
   pending: Alert[];
   apiFailures: number;
   apiRetryAt: number;

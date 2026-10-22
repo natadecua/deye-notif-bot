@@ -14,6 +14,7 @@ One owner's Cron invocation → Deye regional REST API → validated station rea
 | `src/http.ts` | Deadlines, bounded transient retries, sanitized exceptions |
 | `src/telegram.ts` | Plain-text notification transport, success envelope validation |
 | `src/monitor.ts` | One scheduled run, persistence, cooldowns and retry delivery |
+| `src/weather.ts` | Opt-in fixed-host Open-Meteo context, bounded independent decoding and hourly attempt/cache policy |
 | `src/index.ts` | Cron entry point and opt-in webhook routing; other routes return 404 |
 | `src/bot.ts`, `src/bot-state.ts` | Optional authorized webhook, cached status, bounded interaction state and expiring manual charging reports |
 | `src/telegram-settings.ts` | Pure owner-command parsing and validated settings overrides |
@@ -51,6 +52,16 @@ Messages distinguish measured battery discharge from an unknown load breakdown. 
 `ev.profiles` optionally contains 1–12 labelled discrete settings, each specified by current in amps **or** nominal power in watts, never both. IDs and labels are unique and bounded; values must respect the confirmed minimum and electrical configuration. Nominal power is a configuration estimate, not a measurement of actual EV demand. A MAX power rating is never converted into an asserted actual current. Profile-based messages list the supported options and require manual checking; they do not automatically select a setting or retain a generic intermediate amperage reduction that the car may not support. If profiles are absent, the original conditional reduction estimate remains available.
 
 The `npm run preferences` wizard performs no network/secret access and writes only local ignored settings. Applying it to a deployed Worker still requires deployment. Interactive tests inject deterministic prompts and synthetic settings; no real installation data or live account access is used.
+
+## Optional forecast context
+
+`weather` configuration is optional and defaults off. Enabling requires finite latitude/longitude plus explicit eligibility for Open-Meteo's free non-commercial service. The laptop-only `weather:setup` wizard preserves other preferences and does not deploy. Weather settings do not enter the measurement identity or reset full/discharge cycles. Status/settings commands do not request weather; settings show enabled/disabled without coordinates.
+
+Only a due, telemetry-supported discharge notification in its permitted window can prepare a weather attempt. An hourly guard is saved in optional `monitor:v1.weather` by the existing first checkpoint before the public GET. The provider result shares the existing delivery-result checkpoint, requiring no new KV operations or keys. Cache state retains at most six consecutive UTC hourly points, retrieval/attempt/retry times and a location context. Invalid optional context is discarded independently of core state validation; it cannot break battery processing. A different configured location invalidates prior context, not battery latches. Disabled weather is dropped on the next running monitor invocation.
+
+The fixed HTTPS endpoint is `api.open-meteo.com/v1/forecast`; requests use six forecast hours, `cloud_cover`, `shortwave_radiation`, UTC and Unix seconds. Exactly one HTTP attempt has a 1.5-second deadline, manual redirect rejection and a streaming 16 KiB limit. Units must be `%`, `W/m²` and `unixtime`. Accepted ranges are cloud cover 0–100 and radiation 0–2000 W/m²; an invalid result simply provides no context. Failures keep the hourly attempt guard, with longer Retry-After honored in the result checkpoint. Raw bodies, fetch exceptions and request URLs never leave this module. Weather errors do not enter Deye backoff or the battery retry queue.
+
+Rendering uses three strictly future hourly times within the next three hours and a retrieval age under one hour. The text identifies rounded model forecasts, previous-hour radiation means, retrieval time and Open-Meteo/CC BY attribution. It makes no PV-power prediction, EV detection, recommended profile or nighttime exception. Weather unavailability never prevents the ordinary measured alert, except that the existing permitted-window check is repeated after the optional wait. Crashes/eventual consistency can lose cache updates or duplicate requests; there is no global rate/delivery guarantee. Optional work adds CPU and at most one HTTP subrequest per notification invocation; production CPU still requires measurement.
 
 ## Persistent delivery outbox
 

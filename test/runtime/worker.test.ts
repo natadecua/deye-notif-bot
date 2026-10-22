@@ -187,3 +187,56 @@ test('workerd resumes a synthetic daytime confirmation and sends the duration-aw
     assert.doesNotMatch(messages[0], /EV|forecast|weather/i);
   } finally { await runtime.dispose(); }
 });
+
+test('workerd adds optional cached forecast context and still delivers during a weather outage', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  for (const outage of [false, true]) {
+    const manilaHour = (new Date().getUTCHours() + 8) % 24;
+    const c = config({ daytimeDischarge: { timeZone: [0, 23].includes(manilaHour) ? 'UTC' : 'Asia/Manila',
+      startHour: 0, endHour: 24, minimumMinutes: 15 },
+      weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true } });
+    let weatherCalls = 0;
+    const messages: string[] = [];
+    const runtime = new Miniflare(convertV4MiniflareOptions({
+      modules: true, script: bundled.outputFiles[0].text, cf: false,
+      compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+      bindings: { ...syntheticSecrets, MONITOR_CONFIG: c },
+      outboundService: async (request: LocalRequest) => {
+        const url = new URL(request.url);
+        let body: unknown;
+        if (url.hostname === 'api.open-meteo.com') {
+          weatherCalls++; assert.equal(request.method, 'GET');
+          if (outage) return new LocalResponse('Synthetic provider outage', { status: 503 });
+          const start = Math.floor(Date.now() / 3600_000) * 3600;
+          body = { hourly_units: { time: 'unixtime', cloud_cover: '%', shortwave_radiation: 'W/m²' },
+            hourly: { time: Array.from({ length: 6 }, (_, i) => start + i * 3600),
+              cloud_cover: [50, 40, 30, 20, 10, 0], shortwave_radiation: [100, 200, 300, 400, 500, 600] } };
+        } else if (url.pathname.endsWith('/account/token')) body = tokenFixture;
+        else if (url.pathname.endsWith('/station/latest')) body = { ...fixture, batterySOC: 80, dischargePower: 500,
+          lastUpdateTime: new Date(Date.now() - 1000).toISOString() };
+        else if (url.pathname.endsWith('/sendMessage')) { messages.push((await request.json() as { text: string }).text); body = { ok: true }; }
+        else throw new Error('Unexpected synthetic forecast request');
+        return new LocalResponse(JSON.stringify(body));
+      },
+    }));
+    try {
+      const now = Date.now(), s = initialState(c);
+      s.lastReadingAt = now - 300_000;
+      s.latestReading = { at: s.lastReadingAt, soc: 80, dischargeWatts: 500 };
+      s.highCount = 2; s.highStartedAt = now - 905_000;
+      s.dischargeDay = daytimePeriod(now, c.daytimeDischarge!);
+      const kv = await runtime.getKVNamespace('STATE');
+      await kv.put('monitor:v1', JSON.stringify(s));
+      await new Promise(resolve => setTimeout(resolve, 1100));
+      const worker = await runtime.getWorker();
+      await worker.scheduled({ cron: '*/5 * * * *', scheduledTime: new Date() });
+      assert.equal(messages.length, 1); assert.equal(weatherCalls, 1);
+      assert.match(messages[0], /Daytime battery use/);
+      assert.match(messages[0], outage ? /Weather forecast unavailable/ : /Weather data: Open-Meteo/);
+      const stored = await kv.get('monitor:v1', 'json') as { weather: { nextAttemptAt: number }; apiRetryAt: number; pending: unknown[] };
+      assert(stored.weather.nextAttemptAt >= now + 3599_000);
+      assert.equal(stored.apiRetryAt, 0); assert.equal(stored.pending.length, 0);
+    } finally { await runtime.dispose(); }
+  }
+});

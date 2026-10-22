@@ -7,6 +7,7 @@ import { sendTelegram, validateTelegramSecrets } from './telegram.ts';
 import { defaults, type Dependencies, type Env } from './types.ts';
 import { BOT_KEY, activeChargingSession, decodeBotState } from './bot-state.ts';
 import { dischargeWindowOpen } from './daytime.ts';
+import { prepareWeather, fetchWeather, weatherText, type WeatherCache } from './weather.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -54,6 +55,14 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     state.apiRetryAt = Math.max(deps.now() + delay, error instanceof SafeError ? error.retryAt : 0);
     events.push(errorCode(error));
   }
+  // The optional hourly weather guard shares the existing first checkpoint.
+  let refreshWeather = false;
+  if (eligibleToSend && state.pending.some(a => a.kind === 'discharge' && a.nextAttemptAt <= deps.now() &&
+      dischargeWindowOpen(c, a.reading.at, deps.now()))) {
+    const prepared = prepareWeather(c, state.weather, deps.now());
+    state.weather = prepared.cache;
+    refreshWeather = prepared.refresh;
+  } else if (!c.weather?.enabled) delete state.weather;
   // Persist latches and outbox BEFORE contacting Telegram. If this fails, no send.
   await env.STATE.put('monitor:v1', JSON.stringify(state));
   const checkpointAt = deps.now();
@@ -67,6 +76,15 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       changed = true;
       continue;
     }
+    if (a.kind === 'discharge' && refreshWeather) {
+      state.weather = await fetchWeather(state.weather as WeatherCache, c, deps);
+      refreshWeather = false;
+      if (!dischargeWindowOpen(c, a.reading.at, deps.now())) {
+        state.pending = state.pending.filter(p => p.id !== a.id);
+        changed = true;
+        continue;
+      }
+    }
     // Increment in memory; checkpoint after delivery. Crash after a send can still
     // duplicate it. KV is not a transaction or global lock; exactly-once is impossible.
     a.attempts++;
@@ -75,7 +93,9 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       const confirmCharging = c.telegram?.enabled && c.ev.enabled && a.kind === 'discharge';
       const sentAt = deps.now();
       const prompt = activeChargingSession(bot, sentAt) ? 'Update your charging report:' : 'Are you charging an EV?';
-      const text = alertText(a, c, { bot, now: sentAt }) + (confirmCharging ? `\n\n${prompt}` : '');
+      const forecast = a.kind === 'discharge' ? weatherText(state.weather, c, sentAt) : '';
+      const text = alertText(a, c, { bot, now: sentAt }) + (forecast ? `\n\n${forecast}` : '') +
+        (confirmCharging ? `\n\n${prompt}` : '');
       await sendTelegram(env, text, deps, confirmCharging ? { inline_keyboard: [[
         { text: "Yes, I'm charging", callback_data: `charging:yes:${a.reading.at}` },
         { text: "No, I'm not", callback_data: `charging:no:${a.reading.at}` },

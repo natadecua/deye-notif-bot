@@ -18,6 +18,15 @@ function environment() {
     CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(settings()) };
 }
 
+test('CI deployment accepts confirmed weather preferences and refuses extra weather secrets', () => {
+  const s = settings();
+  s.vars.MONITOR_CONFIG.weather = { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true };
+  const env = { ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) };
+  assert.deepEqual(prepareDeployment(env).vars.MONITOR_CONFIG.weather, s.vars.MONITOR_CONFIG.weather);
+  s.vars.MONITOR_CONFIG.weather.token = 'synthetic-secret';
+  assert.throws(() => prepareDeployment({ ...env, WORKER_CONFIG_JSON: JSON.stringify(s) }), /ci_config_unsupported_field/);
+});
+
 test('CI deployment preserves daytime policy and rejects extra nested fields', () => {
   const s = settings();
   s.vars.MONITOR_CONFIG.daytimeDischarge = { timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15 };

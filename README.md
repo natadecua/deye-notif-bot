@@ -10,7 +10,7 @@ GitHub Actions validates pull requests and pushes to `main` on Node.js 22 and 24
 
 **Implementation status:** implemented and validated with synthetic local tests, a local Workers runtime, and a Wrangler deployment dry run. No real Deye credentials or Telegram bot were supplied. Live account access, actual installation units/time formats, live messages, production CPU usage, and cloud scheduling have **not** been validated by this project session. See [validation notes](docs/VALIDATION.md).
 
-The laptop wizard supports independent notification switches and configurable charging profiles. Optional [Telegram commands](docs/TELEGRAM-BOT.md) now add cached status, owner-authorized settings, expiring manual charging reports and yes/no confirmation buttons. Direct EV detection, automatic profile selection and weather/history planning remain future work. The [PRD](docs/PRD.md), [setup proposal](docs/ONBOARDING.md) and [improvement loop](docs/IMPROVEMENT-LOOP.md) distinguish implemented slices from that roadmap.
+The laptop wizard supports independent notification switches and configurable charging profiles. Optional [Telegram commands](docs/TELEGRAM-BOT.md) add cached status, owner-authorized settings, expiring manual charging reports and yes/no confirmation buttons. Optional Open-Meteo forecasts can add weather context to discharge alerts. Direct EV detection, automatic profile selection and weather/history-based charging plans remain future work. The [PRD](docs/PRD.md), [setup proposal](docs/ONBOARDING.md) and [improvement loop](docs/IMPROVEMENT-LOOP.md) distinguish implemented slices from that roadmap.
 
 ## Alerts
 
@@ -39,7 +39,7 @@ To allow short cloud dips, use `npm run daytime:setup`. This offline wizard lets
 
 During that window, fresh high-discharge samples must span at least 15 minutes before the alert. With normal five-minute samples this takes four readings. A low/invalid sample or a long gap restarts confirmation; repeated timestamps do not advance it. The alert stays latched until power falls below the existing rearm threshold, and starts a fresh cycle in the next local daytime window. Nighttime discharge alerts and after-window retries are suppressed; full-battery alerts keep their existing behavior. Sampling cannot establish uninterrupted discharge between readings.
 
-The new message starts **☀️ Daytime battery use**, followed by battery discharge, SOC, the duration and configured window. It reports measured battery use regardless of whether an EV session is known. Optional charging reports/advice remain separate. This does not yet implement overnight reserve planning or weather forecasts.
+The new message starts **☀️ Daytime battery use**, followed by battery discharge, SOC, the duration and configured window. It reports measured battery use regardless of whether an EV session is known. Optional charging reports/advice remain separate. Weather context can be enabled separately below; overnight reserve planning remains unimplemented.
 
 For private configuration/CI, the optional `MONITOR_CONFIG` property is:
 
@@ -53,6 +53,16 @@ For private configuration/CI, the optional `MONITOR_CONFIG` property is:
 ```
 
 Omit that property to retain the original all-day/two-reading rule, or restore that rule through the same wizard. Changing only the daytime policy cancels old discharge advice and resets its confirmation while preserving full-charge cycles. `/settings` shows the active rule when optional bot commands are enabled. See [weather options and limits](docs/RESERVE-ALERTS.md#optional-weather-context) for the next step.
+
+## Optional weather context
+
+Run `npm run weather:setup` to enable Open-Meteo context locally. Confirm eligibility for its free non-commercial API and enter an approximate latitude/longitude for your installation; city-level coordinates are sufficient. The offline wizard preserves other preferences and saves only ignored `wrangler.jsonc`. Apply through a separate manual deployment; when using GitHub delivery, update the private configuration snapshot as well. No API key or additional runtime dependency is needed. Weather defaults off.
+
+Eligible discharge notifications can include the next three hourly cloud-cover/radiation forecasts, the retrieval time and Open-Meteo/CC BY 4.0 attribution. Radiation is a previous-hour model average in W/m², not measured panel output or available charger power. The forecasts are rounded and do not predict exactly when a cloud will clear, detect EV charging or authorize overnight charging. The owner's normal nighttime policy still reserves the battery for the house.
+
+The monitor requests weather only when a discharge notification needs it, at most once per hour under the documented stable-KV/no-overlap assumptions. It caches up to six forecast hours in existing monitor state, rejects unverified units/invalid values, and refuses stale/future/wrong-location context. A failed or unavailable forecast adds a fixed unavailable note; it does not change battery confirmation, Deye backoff or Telegram retries. Full/muted/out-of-window alerts make no weather request. The request has one attempt, a 1.5-second deadline, a 16 KiB body cap and no followed redirects. Context shares the existing state checkpoints, so no KV reads/writes are added.
+
+`/settings` and the offline preference summary show whether weather is enabled without printing coordinates. Weather location/eligibility still use the laptop wizard; `/status` does not fetch a forecast. Keep [Open-Meteo's terms](https://open-meteo.com/en/terms) and [data attribution](https://creativecommons.org/licenses/by/4.0/) in mind when adapting this personal installation to other uses. A Berlin-reference smoke request verified the client against the live weather API; actual Deye/Telegram/Cloudflare delivery, owner-location forecasts and production CPU remain unvalidated.
 
 ## Local setup
 
