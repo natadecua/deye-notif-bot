@@ -45,6 +45,9 @@ Red command:
 npx tsx --test --test-name-pattern='HTTP 408' test/integrations.test.ts test/monitor.test.ts
 ```
 
-Observed before the fix: **2 failed**, with `deye_http_rejected` / `retryable: false` and an empty pending Telegram outbox where one pending event was expected. After classifying HTTP 408 as transient, the same command produced **2 passed**. Deye uses its existing bounded retry/backoff; Telegram uses its existing persistent retry queue. Ambiguous timeout delivery can still duplicate a Telegram message, as already documented.
+Observed before the fix: **2 failed**, with `deye_http_rejected` / `retryable: false` and an empty pending Telegram outbox where one pending event was expected. After classifying HTTP 408 as transient in commit `8722c5b`, the same command produced **2 passed**. Deye uses its existing bounded retry/backoff; Telegram uses its existing persistent retry queue. Ambiguous timeout delivery can still duplicate a Telegram message, as already documented.
 
 Final local verification passed: **65 unit/functional tests plus 1 workerd test**, strict TypeScript checking and a Wrangler deployment dry run. The follow-up bundle is 19.93 KiB uncompressed / 6.14 KiB gzip. No new dependencies, paid service, equipment controls or live integration testing were added. TDD is now documented in CONTRIBUTING.md and AGENTS.md for future work. The related-project search is recorded in RELATED-PROJECTS.md; third-party projects were inspected, not deployed.
+
+
+GitHub publication was attempted for `natadecua/deye-battery-notify`. The authenticated GitHub integration rejected `createRepository` with `Resource not accessible by integration`. No remote repository or hosted CI run was created by that attempt. The local commits and downloadable archive are ready; publishing requires an accessible empty repository or a connection with repository-creation permission.
