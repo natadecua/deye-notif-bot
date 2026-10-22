@@ -1,5 +1,7 @@
 # Deye battery notifications
 
+[![Validation](https://github.com/natadecua/deye-notif-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/natadecua/deye-notif-bot/actions/workflows/ci.yml)
+
 A small, MIT-licensed Cloudflare Worker that sends Telegram messages about a house battery. Develop and configure it on your laptop, then let a five-minute cloud Cron Trigger run it. No extra hardware, dashboard, always-on computer, inverter control, or charger control.
 
 Each installation runs in its owner's Cloudflare account and calls Deye and Telegram directly. There is no shared credential service.
@@ -23,9 +25,11 @@ The complete message includes the charger minimum, an explicit condition on any 
 
 ## Local setup
 
-Use Node.js **22.13 or newer**, npm, a DeyeCloud account with an OpenAPI application, a Telegram account/bot, and your own Cloudflare **Workers Free** account. These commands work from a local checkout on your laptop. This delivered repository is in the provided development workspace; copy/download or clone it onto your laptop to continue there.
+Use Node.js **22.13 or newer**, npm, a DeyeCloud account with an OpenAPI application, a Telegram account/bot, and your own Cloudflare **Workers Free** account. Clone the repository onto your laptop:
 
 ```sh
+git clone https://github.com/natadecua/deye-notif-bot.git
+cd deye-notif-bot
 npm ci
 npm run check
 npm test
