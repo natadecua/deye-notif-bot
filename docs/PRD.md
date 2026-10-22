@@ -18,7 +18,7 @@ Initial example configuration, based on reported capabilities (not global defaul
 - Available car settings reported by the owner: **8 A, 13 A, MAX**.
 - Owner-reported MAX is approximately **7 kW**, not a verified current or measured power.
 - The car supports scheduled charging.
-- Selected objective for this example: **use solar first, allowing grid charging if needed before departure**. Other installations choose their own objective.
+- Latest owner objective for this example: **solar-first EV charging by day; house-only battery use at night**. Overnight EV charging is a temporary exception only for an explicitly reported next-day need. Any grid-assisted charging policy needs its own owner choice. Other installations choose their own objective.
 - Phase configuration, operating voltage, charger minimum/maximum specifications, exact EV/charger model, any read-only telemetry API and household system details remain unconfirmed.
 
 At a **confirmed 230 V single-phase** installation, approximate AC input power is 1.84 kW at 8 A and 2.99 kW at 13 A. At 240 V those estimates are 1.92 and 3.12 kW. These are conditional electrical calculations, not measurements of the owner's installation. The bot must use each installation's actual supported choices rather than generic 3.5/7 kW presets. Never infer MAX amperage from an approximate 7 kW label. Balanced three-phase calculations require explicit confirmation and use all three phases.
@@ -112,11 +112,11 @@ These buttons **record what the user did**; they do not control the vehicle. Dis
 
 ### Step C: choose the objective and constraints
 
-Default for this owner: **solar first, grid allowed before departure**.
+Default for this owner: **solar first by day, battery reserved for the house at night**. A specific “car needed tomorrow” report may open a temporary overnight-planning exception, subject to the agreed household reserve. Ordinary charging-status reports, available battery headroom and weather forecasts must not grant that exception. Its energy/departure goal, expiry and any grid-assisted charging preference require explicit owner input; this flow is not implemented.
 
 Collect car-available days/windows (e.g. 09:00–16:00), next departure time and the requested energy to add. If actual EV SOC/capacity is unavailable, allow a user-entered energy goal rather than fabricating a car SOC. Clearly distinguish energy drawn at the charger from energy stored in the car; losses and reduced actual charging rates affect completion estimates.
 
-Collect the house-battery reserve, desired house-battery SOC by evening, and whether house battery or EV receives priority while solar is limited. A low reserve is a boundary, not a daily target. The owner has now reported a 32 kWh battery, a 13% grid-fallback setting and approximately 40% remaining on a normal morning, and wants short cloud dips/some nighttime EV charging tolerated while protecting normal household use. Morning SOC is not overnight consumption. Sunset SOC, useful-solar windows/timezone, the desired morning target and warning margin still need confirmation; no personal reserve threshold has been chosen. The [reserve-alert proposal](RESERVE-ALERTS.md) now takes priority for the next planner slice and remains unimplemented.
+Collect the house-battery reserve, desired house-battery SOC by evening, and whether house battery or EV receives priority while solar is limited. A low reserve is a boundary, not a daily target. The owner reported a 32 kWh battery, a 13% grid-fallback setting and approximately 40% remaining on a normal morning. Short daytime cloud dips are acceptable; nighttime battery use is for the house, with EV charging only as an explicit exception for the next day's need. Morning SOC is not overnight consumption. Batangas City/Asia-Manila timezone and a 15-minute daytime tolerance are known; sunset SOC, useful-solar hours, desired morning target and warning margin still need confirmation. No personal reserve threshold has been chosen. The [reserve-alert proposal](RESERVE-ALERTS.md) remains unimplemented beyond the separate daytime-discharge slice.
 
 ### Step D: location and system
 

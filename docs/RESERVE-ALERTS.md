@@ -6,7 +6,7 @@ Latest clarification: the owner chose **Batangas City** and **15 minutes** of di
 
 ## Owner goal
 
-Allow some house-battery contribution to EV charging when it can be spared, including short daytime cloud dips and finishing a charge at night. Warn early enough to leave energy for ordinary household use until useful solar returns. The useful alarm concerns the remaining household reserve, rather than every occurrence of battery discharge above 300 W.
+Allow some house-battery contribution during daytime EV charging, including short cloud dips. **At night, reserve the battery for the house by default.** Overnight EV charging is an exception only when the owner explicitly says the car is needed the next day; apparent spare capacity alone must not enable or recommend it. Warn early enough to protect household energy until useful solar returns. All equipment changes remain manual.
 
 Reported context for this installation, not defaults for other owners:
 
@@ -14,14 +14,15 @@ Reported context for this installation, not defaults for other owners:
 - Existing inverter/grid fallback: **13% SOC**. The bot must not change this setting.
 - A typical morning SOC is approximately **40%**. This is an observation, not yet a chosen morning target or the amount used overnight.
 - EV settings: **8 A, 13 A, MAX**, with owner-reported MAX approximately **7 kW**. Settings remain manual and nominal ratings are not measurements.
-- Brief battery discharge during clouds is acceptable; some nighttime EV charging is acceptable if the house reserve remains adequate.
+- Brief daytime battery discharge during clouds is acceptable. Normal nighttime battery use is for the house only. A particular next-day need for the car can justify an explicit, temporary overnight-charging exception; it is not a standing permission.
 
-Still needed before choosing installation thresholds: usual SOC when useful solar stops on a no-EV night, useful-solar start/end times and installation timezone, desired morning SOC, and an agreed warning margin/daytime drawdown tolerance. A count of running appliances does not establish their overnight energy consumption.
+The installation timezone is Asia/Manila and the chosen daytime discharge tolerance is 15 minutes. Still needed for reserve planning: usual SOC when useful solar stops on a no-EV night, actual useful-solar start/end times, desired morning SOC and a warning margin. An urgent-night exception additionally needs that night's departure/energy goal and the owner's chosen household-reserve/grid policy. A count of running appliances does not establish their overnight energy consumption.
 
 ## Two separate decisions
 
 1. **Is the car charging?** Use a current owner confirmation initially. Record the reported profile and expiry. Expiry means unknown. Later, an explicitly supported read-only vehicle/charger source could provide measured status. A house-battery reading or a matching power step never establishes EV charging or its contribution.
 2. **Is the household reserve being threatened?** Evaluate accepted fresh battery SOC, sustained discharge and explicitly configured reserve rules. Report the household energy budget as an estimate. Do not assert that the EV caused a measured battery drop.
+3. **Did the owner request an urgent overnight exception?** A charging-status report only describes what the owner is doing; it does not grant an exception. A future “need the car tomorrow” flow must be explicit, scoped to the particular upcoming departure and expire afterwards. Weather, predicted spare capacity and a recurring car schedule cannot grant or renew it. The exception records a planning preference and never controls equipment.
 
 The notification can say, for example: “House reserve is approaching your limit. You reported EV charging. Consider reducing or pausing it manually.” It must identify manual evidence, source-reading time and any estimated quantities. It does not send a stop/reduce command to equipment.
 
@@ -43,7 +44,9 @@ On a 32 kWh nameplate basis, 27 percentage points correspond to roughly **8.64 k
 | --- | --- |
 | Daytime, short cloud dip, reserve healthy | Keep quiet; do not warn merely because discharge exceeds 300 W. |
 | Daytime, prolonged drawdown or agreed SOC-loss budget exceeded | Warn once during the charging session, with observed SOC loss/duration and the configured reserve. Do not predict that solar will recover without a validated source. |
-| Nighttime, current charging report, household reserve approaching its boundary | Advise reducing/pausing manually before consuming the agreed household reserve. Finishing the car is allowed while there is estimated headroom. |
+| Nighttime, ordinary household discharge | Expected use of the house battery. Do not send daytime-discharge alarms or routine EV-charging suggestions. |
+| Nighttime, current charging report, no urgent exception | Explain that the owner's normal policy reserves the battery for the house and suggest pausing EV charging manually. Do not infer the charging report from battery use. This advice flow is proposed, not implemented. |
+| Nighttime, explicitly requested car-needed-tomorrow exception | Consider only the agreed energy/departure goal and household reserve, with any grid fallback separately chosen by the owner. Warn if the agreed reserve is threatened; expire the exception after that departure. No automatic charging or equipment adjustment. |
 | Car reported stopped | Suppress EV-adjustment advice; preserve any separately enabled household low-reserve alarm. |
 | Charging report expired/unknown | Do not assume stopped or charging. Display unknown and request a new report when appropriate; a separately enabled household reserve warning must not rely on EV inference. |
 | Stale/missing data | Do not estimate current headroom or issue a new charging recommendation from stale readings. |
@@ -55,6 +58,7 @@ The initial runtime slice should use explicitly chosen day/night windows and res
 - Meaningful failing tests before adding reserve behavior, including fresh distinct samples, a minimum observation duration, a tolerated cloud dip, a longer drawdown, window boundaries, active/expired manual reports, missing data and rearm/restart behavior.
 - Use elapsed sample time as well as sample count; two different timestamps alone do not prove a chosen duration. Bound long gaps and discard stale/out-of-order evidence.
 - Preserve existing full/discharge latches during upgrade. The owner can disable the generic discharge notification independently when enabling reserve advice.
+- Default this owner's nighttime planning to house-only battery use. A normal `/charging` report, weather forecast or estimated headroom must not grant an urgent exception. Test explicit per-departure confirmation, cancellation and expiry before implementing exception advice.
 - Keep reserve alerts bounded with explicit queue priority, expiry, retry and recovery rules; avoid repeated reminders during one continuous event. Recalculate the Free-plan KV/CPU budget before adding events or history.
 - Reuse the station request and owner-local state. Keep the runtime dependency-free, per-owner credentials and Telegram v1.
 - Distinguish local/synthetic checks from actual installation validation. No guarantee that a chosen reserve will last the night or that a message will arrive in time.
