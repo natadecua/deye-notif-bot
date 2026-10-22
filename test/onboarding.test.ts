@@ -97,3 +97,10 @@ test('complete new-EV onboarding saves only explicitly confirmed profiles and pr
   assert.equal(h.remaining.length, 0);
   assert.notEqual(updated, original);
 });
+test('MAX power must be entered explicitly instead of assuming a rating for another installation', async () => {
+  const h = prompts(['8-13-max']);
+  let initialValue: number | undefined = 123;
+  h.p.number = async (_message, initial) => { initialValue = initial; return 7000; };
+  await configureChargingProfiles(electrical, h.p);
+  assert.equal(initialValue, undefined);
+});
