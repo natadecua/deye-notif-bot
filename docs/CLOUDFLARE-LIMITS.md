@@ -35,6 +35,8 @@ Authorized `/status` renders optional weather from the same monitor cache read i
 
 Configured profile-report buttons use the existing bot-state read/replay write, one Telegram reply and, for callbacks, one acknowledgement. There is no monitor read/write, new state field/key, telemetry/weather request or extra retry. Up to 12 buttons use callback data of at most 44 ASCII bytes. At most one invocation-local SHA-256 digest of EV definitions is computed for eligible profile work; no global cache/history is retained. The 864/912 write/day and existing callback subrequest design bounds remain unchanged, under their existing assumptions. Production CPU for hashing/menu rendering still requires measurement.
 
+Local battery reading/manual-expiry labels reuse the existing explicit daytime timezone and its single replaceable `Intl.DateTimeFormat`. It now includes minutes, seconds and an offset and is shared with window checks; no additional formatter map/history, KV/state/config field or provider request is added. UTC fallback uses the existing direct date formatting. The 864/912 write/day and subrequest design bounds remain unchanged. Additional `formatToParts`/offset rendering and the expanded formatter's cold/warm CPU still need production measurement.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.

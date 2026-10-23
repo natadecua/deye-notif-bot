@@ -5,11 +5,14 @@ import { SafeError } from './errors.ts';
 let cachedZone: string | undefined, cachedFormatter: Intl.DateTimeFormat | undefined;
 function formatter(timeZone: string): Intl.DateTimeFormat {
   if (timeZone !== cachedZone || !cachedFormatter) {
-    const next = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit',
-      day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+    const next = new Intl.DateTimeFormat('en-CA-u-ca-gregory-nu-latn', { timeZone, year: 'numeric', month: '2-digit',
+      day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset' });
     cachedFormatter = next; cachedZone = timeZone;
   }
   return cachedFormatter;
+}
+export function zonedDateParts(at: number, timeZone: string): Intl.DateTimeFormatPart[] {
+  return formatter(timeZone).formatToParts(new Date(at));
 }
 export function validateDaytime(raw: unknown): void {
   if (raw === undefined) return;
@@ -23,7 +26,7 @@ export function validateDaytime(raw: unknown): void {
   try { formatter(p.timeZone); } catch { throw new SafeError('daytime_discharge_invalid'); }
 }
 export function daytimePeriod(at: number, p: DaytimeDischarge): string | undefined {
-  const parts = formatter(p.timeZone).formatToParts(new Date(at));
+  const parts = zonedDateParts(at, p.timeZone);
   const part = (name: string) => parts.find(p => p.type === name)!.value;
   const hour = Number(part('hour'));
   return hour >= p.startHour && hour < p.endHour ? `${part('year')}-${part('month')}-${part('day')}` : undefined;

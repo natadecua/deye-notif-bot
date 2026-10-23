@@ -4,6 +4,7 @@ import { SafeError } from './errors.ts';
 import { chargingProfileReference } from './profiles.ts';
 import { activeChargingSession, chargingSummary, type BotState } from './bot-state.ts';
 import { daytimeIdentity, daytimePeriod, daytimeSummary, dischargeWindowOpen } from './daytime.ts';
+import { displayTime } from './display-time.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
 export function initialState(c: Config): State {
@@ -129,10 +130,7 @@ export function batteryLoadSummary(c: Config): string {
     (c.ev.enabled ? '\nHousehold / EV split: unknown.' : '');
 }
 export function alertText(a: Alert, c: Config, context?: { bot?: BotState; now: number }): string {
-  // Format explicitly in UTC, independent of the Worker host's locale/timezone.
-  const date = new Date(a.reading.at);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const when = `${date.getUTCDate()} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}, ${date.toISOString().slice(11, 19)} UTC`;
+  const when = displayTime(a.reading.at, c, 'readable');
   const footer = `\n\nReading: ${when}\nDeye Cloud data may be delayed.`;
   if (a.kind === 'full') {
     const title = c.fullSoc === 100 ? '🔋 House battery full' : '🔋 House battery charge target reached';

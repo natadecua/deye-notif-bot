@@ -19,7 +19,7 @@ The laptop wizard supports independent notification switches and configurable ch
 - Discharge messages label **battery discharge** and an **unknown load breakdown**. This reading does not measure total home use or separate appliances from EV charging. Optional EV hints stay conditional; a current manual “not charging” report suppresses EV reduction advice. Installations with EV hints off receive battery-only alerts.
 - Optional estimate when no fixed profiles are configured: `ceil(discharge W / voltage)` for single-phase, or `ceil(discharge W / (3 × line-to-neutral voltage))` for confirmed balanced three-phase. Setup requires confirmed phases, voltage and the charger's supported minimum. It never infers present EV amperage or recommends a target setting. Check present current yourself; reduce only if the resulting setting remains at or above the documented minimum. Otherwise consider pausing manually.
 
-Messages use clear event titles, separate charge/power lines and readable UTC source times. A charge target below 100% is labelled “charge target reached”. Example (synthetic):
+Messages use clear event titles and separate charge/power lines. Battery reading times and manual-report expiry use the explicitly configured daytime installation timezone, labelled with its name and UTC offset. Without that setting, existing UTC text is retained. A charge target below 100% is labelled “charge target reached”. Example without a configured timezone (synthetic):
 
 > ⚡ House battery supplying power<br>
 > Battery discharge: 800 W<br>
@@ -53,6 +53,8 @@ For private configuration/CI, the optional `MONITOR_CONFIG` property is:
 ```
 
 Omit that property to retain the original all-day/two-reading rule, or restore that rule through the same wizard. Changing only the daytime policy cancels old discharge advice and resets its confirmation while preserving full-charge cycles. `/settings` shows the active rule when optional bot commands are enabled. See [weather options and limits](docs/RESERVE-ALERTS.md#optional-weather-context) for the next step.
+
+The same `daytimeDischarge.timeZone` now makes battery reading/expiry labels local: for example, `22 Oct 2026, 16:24:07 Asia/Manila (UTC+08:00)`. Status and expiry use numeric dates with the same zone/offset. There is no new display-zone preference, location lookup or timezone guess from station metadata or weather coordinates. Source instants, freshness, six-hour report duration and 30-minute button limits are unchanged; UTC offsets distinguish repeated daylight-saving hours. Weather forecast/retrieval labels and the command budget's UTC day remain UTC. Applying the display change still requires a separate manual code release.
 
 ## Optional weather context
 

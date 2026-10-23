@@ -68,6 +68,40 @@ test('/status explains absent and stale readings instead of presenting them as l
   assert.match(stale.sent[0], /stale/i);
 });
 
+test('authorized status and charging replies use configured local time without changing cache, age or expiry', async () => {
+  const h = setup();
+  const c = config({ telegram: { enabled: true }, daytimeDischarge: {
+    timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15,
+  } });
+  h.env.MONITOR_CONFIG = c; h.clock.time = Date.parse('2026-10-22T16:00:01Z');
+  const s = initialState(c); s.lastReadingAt = h.clock.time - 60_000;
+  s.latestReading = { at: s.lastReadingAt, soc: 82, dischargeWatts: 315 };
+  const before = JSON.stringify(s); h.kv.data.set('monitor:v1', before);
+  await h.send(h.message('/charging'));
+  assert.match(h.sent[0], /expires 2026-10-23 06:00:01 Asia\/Manila \(UTC\+08:00\)/);
+  const expiry = botState(h).session.expiresAt; h.advance(3000); h.calls.length = 0;
+  await h.send(h.message('/status', 2));
+  assert.match(h.sent.at(-1)!, /Reading: 2026-10-22 23:59:01 Asia\/Manila \(UTC\+08:00\)/);
+  assert.match(h.sent.at(-1)!, /Data age: 63 seconds/);
+  assert.equal(botState(h).session.expiresAt, expiry); assert.equal(h.kv.data.get('monitor:v1'), before);
+  assert(h.calls.every(c => c.url.endsWith('/sendMessage')));
+  h.advance(700_000); await h.send(h.message('/status', 3));
+  assert.match(h.sent.at(-1)!, /stale — do not treat this as current/);
+  assert.equal(h.kv.data.get('monitor:v1'), before);
+});
+
+test('a local midnight does not reset the UTC command budget', async () => {
+  const h = setup(); h.env.MONITOR_CONFIG = config({ telegram: { enabled: true }, daytimeDischarge: {
+    timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15,
+  } });
+  h.clock.time = Date.parse('2026-10-22T15:59:58Z');
+  await h.send(h.message('/charging'));
+  const saved = botState(h); saved.used = 47; h.kv.data.set('telegram:v1', JSON.stringify(saved));
+  h.advance(3000); await h.send(h.message('/help', 2));
+  assert.match(h.sent.at(-1)!, /Daily command limit reached.*00:00 UTC/);
+  assert.equal(botState(h).used, 48); assert.equal(botState(h).day, '2026-10-22');
+});
+
 // Synthetic coordinates and hourly forecast; no owner location or live provider calls.
 function cachedWeather(h: ReturnType<typeof setup>, battery = true) {
   const c = config({ telegram: { enabled: true },

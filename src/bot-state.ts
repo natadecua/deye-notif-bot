@@ -2,6 +2,7 @@ import type { Config } from './types.ts';
 import { validateConfig } from './config.ts';
 import { SafeError } from './errors.ts';
 import type { SettingsOverrides } from './telegram-settings.ts';
+import { displayTime } from './display-time.ts';
 
 export const BOT_KEY = 'telegram:v1';
 export const SESSION_MS = 6 * 3600_000;
@@ -41,5 +42,5 @@ export function chargingSummary(s: BotState | undefined, c: Config, now: number)
   const session = activeChargingSession(s, now);
   if (!session) return 'EV charging: unknown';
   const profile = c.ev.profiles?.find(p => p.id === session.profileId);
-  return `EV charging: you confirmed ${session.status === 'charging' ? 'charging' : 'not charging'}\nSource: manual confirmation; expires ${new Date(session.expiresAt).toISOString().slice(0, 19).replace('T', ' ')} UTC${profile ? `\nReported profile: ${profile.label}` : ''}`;
+  return `EV charging: you confirmed ${session.status === 'charging' ? 'charging' : 'not charging'}\nSource: manual confirmation; expires ${displayTime(session.expiresAt, c)}${profile ? `\nReported profile: ${profile.label}` : ''}`;
 }

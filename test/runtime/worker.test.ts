@@ -253,6 +253,49 @@ test('workerd records configured profile buttons as expiring manual reports and 
   } finally { await runtime.dispose(); }
 });
 
+test('workerd displays configured local reading/expiry times while retaining absolute cache and session values', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const secret = 'synthetic-webhook-secret-1234567890', messages: string[] = [];
+  const c = config({ telegram: { enabled: true }, daytimeDischarge: {
+    timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15,
+  } });
+  const runtime = new Miniflare(convertV4MiniflareOptions({
+    modules: true, script: bundled.outputFiles[0].text, cf: false,
+    compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: c, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789' },
+    outboundService: async (request: LocalRequest) => {
+      assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+      assert(new URL(request.url).pathname.endsWith('/sendMessage'));
+      messages.push((await request.json() as { text: string }).text);
+      return new LocalResponse(JSON.stringify({ ok: true }));
+    },
+  }));
+  try {
+    const kv = await runtime.getKVNamespace('STATE'), s = initialState(c);
+    s.lastReadingAt = Date.parse('2025-12-31T16:00:01Z');
+    s.latestReading = { at: s.lastReadingAt, soc: 82, dischargeWatts: 315 };
+    const before = JSON.stringify(s); await kv.put('monitor:v1', before);
+    const post = (text: string, id: number) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+      method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': secret }, body: JSON.stringify({ update_id: id,
+        message: { date: Math.floor(Date.now() / 1000), from: { id: 789 }, chat: { id: 456 }, text } }),
+    });
+    assert.equal((await post('/charging', 1)).status, 200);
+    const bot = await kv.get('telegram:v1', 'json') as { session: { at: number; expiresAt: number } };
+    assert.equal(bot.session.expiresAt - bot.session.at, 6 * 3600_000);
+    // Fixed UTC+08 test expectation for this explicitly synthetic Manila installation.
+    const expiry = new Date(bot.session.expiresAt + 8 * 3600_000).toISOString().slice(0, 19).replace('T', ' ');
+    assert(messages[0].includes(`expires ${expiry} Asia/Manila (UTC+08:00)`));
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    assert.equal((await post('/status', 2)).status, 200);
+    assert.match(messages[1], /Reading: 2026-01-01 00:00:01 Asia\/Manila \(UTC\+08:00\)/);
+    assert.match(messages[1], /stale — do not treat this as current/);
+    assert.equal(await kv.get('monitor:v1'), before);
+    const after = await kv.get('telegram:v1', 'json') as { session: unknown };
+    assert.deepEqual(after.session, bot.session); assert.equal(messages.length, 2);
+  } finally { await runtime.dispose(); }
+});
+
 test('workerd resumes a synthetic daytime confirmation and sends the duration-aware alert', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
