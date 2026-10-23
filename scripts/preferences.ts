@@ -97,7 +97,14 @@ export function preferencesSummary(c: Config): string {
   }
   if (c.weather !== undefined) lines.push(`Weather context: ${c.weather.enabled ? 'on (Open-Meteo; no EV detection or charging plan)' : 'off'}`);
   if (!n.full && !n.discharge) lines.push('All battery notifications are off. Cycles will still be tracked while the monitor runs.');
-  lines.push('Advice only; no inverter or charger controls. Forecast planning and Telegram settings menus are not active.');
+  lines.push(c.telegram?.enabled
+    ? 'Telegram commands: enabled in local configuration (/help, /status, /settings). For first activation or a changed owner/bot, complete pairing with npm run telegram:setup.'
+    : 'Telegram commands: off in local configuration; optional owner pairing: npm run telegram:setup.');
+  lines.push('Battery notifications do not require EV hints, weather or Telegram commands.',
+    'Local configuration does not verify owner pairing, secret upload, deployment, webhook registration or message receipt.',
+    'Apply saved preferences manually: upload added/changed secrets with npm run secrets:upload, then npm run deploy.');
+  if (c.telegram?.enabled) lines.push('To activate commands after deployment, run npm run telegram:webhook, then confirm a /status reply in the owner chat.');
+  lines.push('Advice only; no inverter or charger controls. Forecast charging plans and overnight EV exceptions are not implemented.');
   return lines.join('\n');
 }
 

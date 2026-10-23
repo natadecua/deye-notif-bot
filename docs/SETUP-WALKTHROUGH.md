@@ -20,6 +20,8 @@ The walkthrough uses the same extracted setup/pairing flows as the CLI, the real
 
 Coordinates in the rehearsal are synthetic and do not represent Batangas City. Weather defaults off in the public template. No forecast or charging report grants an overnight EV exception; the house remains the normal nighttime battery priority. EV profile choices remain available in real setup and are covered by separate synthetic journey tests; nominal ratings never measure charging power.
 
+The shared preferences summary labels optional commands from local configuration only. A locally enabled flag cannot establish successful pairing, secret upload, deployment, webhook registration or message receipt. It lists the separate manual steps and owner-chat `/status` check; commands that are off leave pairing optional. Battery-only setup remains supported, and forecast context is distinct from unimplemented charging plans/overnight exceptions. The summary prints no station identifier or coordinates.
+
 ## Recovery without losing a working binding
 
 Replacing only Deye credentials retains the Telegram owner, webhook secret and bot username if the bot token/chat stay unchanged. New Deye login details discard obsolete company/mobile context. A different Telegram token or chat clears the old owner binding and disables commands in the returned local settings until `npm run telegram:setup` pairs the intended owner. Upload/deployment/registration remain explicit steps; the deployed configuration is not changed by the local wizard.

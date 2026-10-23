@@ -64,6 +64,8 @@ Messages distinguish measured battery discharge from an unknown load breakdown. 
 
 The `npm run preferences` wizard performs no network/secret access and writes only local ignored settings. Applying it to a deployed Worker still requires deployment. Interactive tests inject deterministic prompts and synthetic settings; no real installation data or live account access is used.
 
+Its shared summary uses only existing configuration to label optional Telegram commands as locally enabled/off, without claiming pairing or deployment readiness. Manual upload, deployment, registration and owner receipt checks stay separate. Disabled/omitted commands leave pairing optional; weather context does not imply charging planning or overnight permission. Summary generation is pure and omits location/station identifiers. This laptop-only text adds no runtime code, state, provider request or KV/CPU cost.
+
 The real setup adapter delegates to shared prompt flows, then performs its existing local secret/config writes only after a successful result. Synthetic rehearsal invokes those same flows with in-memory inputs and injected transports; it has no live-file or network fallback. Replacing Deye credentials retains the same bot/chat's owner binding while removing obsolete Deye login context. Changing bot token/chat clears owner/webhook fields and disables local commands until pairing. The adapter still requires explicit upload/deployment/registration; final writes are not a cross-file transaction. This setup-only work does not enter the Worker bundle or change KV/CPU/request budgets.
 
 ## Optional forecast context
