@@ -68,6 +68,101 @@ test('/status explains absent and stale readings instead of presenting them as l
   assert.match(stale.sent[0], /stale/i);
 });
 
+// Synthetic monitor snapshots: status must describe these without running a poll.
+async function healthStatus(options: { readingAge?: number; retryIn?: number; retryAt?: number; enabled?: boolean; local?: boolean } = {}) {
+  const h = setup(), c = config({ telegram: { enabled: true }, enabled: options.enabled ?? true,
+    ...(options.local ? { daytimeDischarge: { timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15 } } : {}) });
+  h.env.MONITOR_CONFIG = c;
+  const s = initialState(c);
+  if (options.readingAge !== undefined) {
+    s.lastReadingAt = h.clock.time - options.readingAge;
+    s.latestReading = { at: s.lastReadingAt, soc: 82, dischargeWatts: 315 };
+  }
+  s.apiFailures = options.retryIn !== undefined || options.retryAt !== undefined ? 2 : 0;
+  s.apiRetryAt = options.retryAt ?? (options.retryIn !== undefined ? h.clock.time + options.retryIn : 0);
+  // Unknown raw fields must never become a health explanation or public text.
+  const raw = JSON.stringify({ ...s, lastError: 'synthetic-private-exception',
+    upstreamBody: 'synthetic-private-body', url: 'https://synthetic.invalid/?secret=synthetic-private-url' });
+  h.kv.data.set('monitor:v1', raw);
+  const reads: string[] = [], get = h.kv.get.bind(h.kv);
+  h.kv.get = async key => { reads.push(key); return get(key); };
+  const response = await h.send(h.message('/status'));
+  assert.equal(response.status, 200);
+  assert.deepEqual(reads, ['telegram:v1', 'monitor:v1']);
+  assert.deepEqual(h.kv.puts.map(p => p.key), ['telegram:v1']);
+  assert.equal(h.kv.data.get('monitor:v1'), raw);
+  assert.equal(h.calls.length, 1); assert(h.calls[0].url.endsWith('/sendMessage'));
+  assert.doesNotMatch(h.sent[0], /synthetic-private|synthetic\.invalid|apiFailures|apiRetryAt/);
+  return h;
+}
+
+test('cached update status distinguishes waiting for a reading from a recorded cooldown', async () => {
+  const waiting = await healthStatus();
+  assert.match(waiting.sent[0], /Waiting for a cached reading/);
+  assert.match(waiting.sent[0], /not a live connection check/);
+  const delayed = await healthStatus({ retryIn: 300_000 });
+  assert.match(delayed.sent[0], /No cached reading/);
+  assert.match(delayed.sent[0], /Data updates: retry cooldown/);
+  assert.match(delayed.sent[0], /Next attempt allowed after: 2026-10-21 12:05:00 UTC/);
+  assert.match(delayed.sent[0], /Reason is not recorded/);
+  assert.doesNotMatch(delayed.sent[0], /connected|healthy|credentials rejected|service down/i);
+});
+
+test('cached update status preserves fresh battery data while showing an independent retry delay', async () => {
+  const h = await healthStatus({ readingAge: 60_000, retryIn: 300_000 });
+  assert.match(h.sent[0], /Charge: 82%/); assert.match(h.sent[0], /Data age: 60 seconds/);
+  assert.match(h.sent[0], /within the configured freshness limit/);
+  assert.match(h.sent[0], /Data updates: retry cooldown/);
+  assert.match(h.sent[0], /scheduled poll may try again/i);
+});
+
+test('an elapsed retry threshold remains cached history rather than proof of recovery', async () => {
+  for (const retryIn of [-1, 0]) {
+    const h = await healthStatus({ readingAge: 700_000, retryIn });
+    assert.match(h.sent[0], /Retry delay has elapsed/);
+    assert.match(h.sent[0], /stale — do not treat this as current/);
+    assert.doesNotMatch(h.sent[0], /Next attempt allowed after|recovered|connected|healthy/i);
+  }
+});
+
+test('a cached reading with no recorded retry delay does not claim a healthy live connection', async () => {
+  const h = await healthStatus({ readingAge: 700_000 });
+  assert.match(h.sent[0], /No retry delay is recorded/);
+  assert.match(h.sent[0], /not a live connection check/);
+  assert.match(h.sent[0], /stale — do not treat this as current/);
+});
+
+test('disabled monitoring takes precedence over old cooldowns even without a cached reading', async () => {
+  for (const readingAge of [undefined, 60_000]) {
+    const h = await healthStatus({ enabled: false, readingAge, retryIn: 300_000 });
+    assert.match(h.sent[0], /Scheduled monitoring is disabled/);
+    assert.doesNotMatch(h.sent[0], /Next attempt allowed after|scheduled poll may try again|Wait for a successful scheduled poll/i);
+    if (readingAge !== undefined) assert.match(h.sent[0], /82%/);
+  }
+});
+
+test('retry eligibility uses explicit local time without changing the actual retry threshold', async () => {
+  const h = await healthStatus({ local: true, retryIn: 300_000 });
+  assert.match(h.sent[0], /Next attempt allowed after: 2026-10-21 20:05:00 Asia\/Manila \(UTC\+08:00\)/);
+  assert.equal(JSON.parse(h.kv.data.get('monitor:v1')!).apiRetryAt, BASE_TIME + 300_000);
+});
+
+test('an unrenderable retry date never hides cached battery data or reflects its raw value', async () => {
+  const h = await healthStatus({ readingAge: 60_000, retryAt: 1e100 });
+  assert.match(h.sent[0], /Charge: 82%/); assert.match(h.sent[0], /Retry time is unavailable/);
+  assert.doesNotMatch(h.sent[0], /1e\+100|Invalid Date/);
+});
+
+test('a later accepted scheduled reading clears the recorded cooldown without status doing so', async () => {
+  const h = await healthStatus({ retryIn: 300_000 });
+  h.advance(300_000); h.reading(81, 0); await runMonitor(h.env, h.deps);
+  const stored = h.kv.data.get('monitor:v1'); h.calls.length = 0;
+  h.advance(3000); await h.send(h.message('/status', 2));
+  assert.match(h.sent.at(-1)!, /81%/); assert.match(h.sent.at(-1)!, /No retry delay is recorded/);
+  assert.equal(h.kv.data.get('monitor:v1'), stored);
+  assert(h.calls.every(c => c.url.endsWith('/sendMessage')));
+});
+
 test('authorized status and charging replies use configured local time without changing cache, age or expiry', async () => {
   const h = setup();
   const c = config({ telegram: { enabled: true }, daytimeDischarge: {

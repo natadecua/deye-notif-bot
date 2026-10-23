@@ -1,4 +1,4 @@
-import { defaults, type Config, type Dependencies, type Env } from './types.ts';
+import { defaults, type Config, type Dependencies, type Env, type State } from './types.ts';
 import { validateConfig } from './config.ts';
 import { batteryLoadSummary, decodeState } from './alerts.ts';
 import { BOT_KEY, chargingSummary, decodeBotState, SESSION_MS } from './bot-state.ts';
@@ -37,16 +37,34 @@ async function payload(request: Request): Promise<Record<string, unknown>> {
   if (!result) throw new SafeError('bot_payload_invalid');
   return result;
 }
+function cachedUpdateStatus(state: State, c: Config, now: number): string {
+  let text = `📡 Cached update status\nScheduled monitoring is ${c.enabled ? 'enabled' : 'disabled'}.`;
+  if (c.enabled) {
+    if (now < state.apiRetryAt) {
+      let retry = 'Retry time is unavailable in this cache.';
+      if (state.apiRetryAt <= 8.64e15) {
+        try { retry = `Next attempt allowed after: ${displayTime(state.apiRetryAt, c)}.`; }
+        catch { /* Optional display cannot hide battery data or echo an exception. */ }
+      }
+      text += `\nData updates: retry cooldown.\n${retry}\nReason is not recorded in this cache. A scheduled poll may try again when the delay allows it.`;
+    } else if (state.apiRetryAt > 0) {
+      text += '\nData updates: Retry delay has elapsed; a scheduled poll may try again.';
+    } else {
+      text += state.latestReading ? '\nData updates: No retry delay is recorded.' : '\nData updates: Waiting for a cached reading.';
+    }
+  }
+  return text + '\nThis is cached status, not a live connection check; /status does not poll Deye.';
+}
 async function status(env: Env, c: Config, now: number): Promise<string> {
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   const r = state.latestReading;
   const weather = weatherStatusText(state.weather, c, now);
-  const context = weather ? `\n\n${weather}` : '';
-  if (!r) return '🔋 Battery status\n\nNo cached reading yet. Wait for a successful scheduled poll.' + context;
+  const context = `\n\n${cachedUpdateStatus(state, c, now)}` + (weather ? `\n\n${weather}` : '');
+  if (!r) return '🔋 Battery status\n\nNo cached reading yet.' + context;
   const age = Math.floor((now - r.at) / 1000);
   const quality = age < 0 || age > c.maxAgeSeconds ? 'stale — do not treat this as current' : 'within the configured freshness limit';
   const profiles = chargingProfileReference(c.ev);
-  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${Math.round(r.dischargeWatts)} W\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\n${c.enabled ? 'Scheduled monitoring is enabled.' : 'Scheduled monitoring is disabled.'}\nDeye Cloud data may be delayed.` + context;
+  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${Math.round(r.dischargeWatts)} W\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\nDeye Cloud data may be delayed.` + context;
 }
 export async function handleTelegramRequest(request: Request, env: Env, deps: Dependencies = defaults): Promise<Response> {
   const ok = () => new Response('OK');

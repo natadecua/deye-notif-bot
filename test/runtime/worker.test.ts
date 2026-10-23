@@ -296,6 +296,56 @@ test('workerd displays configured local reading/expiry times while retaining abs
   } finally { await runtime.dispose(); }
 });
 
+test('workerd describes cached cooldown, missing/stale data and disabled polling without contacting Deye', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  for (const scenario of ['missing', 'stale', 'disabled', 'elapsed']) {
+    const c = config({ enabled: scenario !== 'disabled', telegram: { enabled: true }, daytimeDischarge: {
+      timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15,
+    } });
+    const secret = 'synthetic-webhook-secret-1234567890', messages: string[] = [];
+    const runtime = new Miniflare(convertV4MiniflareOptions({
+      modules: true, script: bundled.outputFiles[0].text, cf: false,
+      compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+      bindings: { ...syntheticSecrets, MONITOR_CONFIG: c, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789' },
+      outboundService: async (request: LocalRequest) => {
+        assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+        assert(new URL(request.url).pathname.endsWith('/sendMessage'));
+        messages.push((await request.json() as { text: string }).text);
+        return new LocalResponse(JSON.stringify({ ok: true }));
+      },
+    }));
+    try {
+      const kv = await runtime.getKVNamespace('STATE'), s = initialState(c), now = Date.now();
+      if (scenario === 'stale' || scenario === 'elapsed') {
+        s.lastReadingAt = now - 700_000; s.latestReading = { at: s.lastReadingAt, soc: 82, dischargeWatts: 315 };
+      }
+      s.apiFailures = 1; s.apiRetryAt = now + (scenario === 'elapsed' ? -1000 : 300_000);
+      const before = JSON.stringify({ ...s, upstreamBody: 'synthetic-private-body', lastError: 'synthetic-private-exception' });
+      await kv.put('monitor:v1', before);
+      const post = (header: string) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+        method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': header }, body: JSON.stringify({ update_id: 1,
+          message: { date: Math.floor(Date.now() / 1000), from: { id: 789 }, chat: { id: 456 }, text: '/status' } }),
+      });
+      assert.equal((await post('synthetic-wrong')).status, 403); assert.equal(messages.length, 0);
+      assert.equal((await post(secret)).status, 200); assert.equal(messages.length, 1);
+      assert.match(messages[0], /not a live connection check/); assert.doesNotMatch(messages[0], /synthetic-private/);
+      if (scenario === 'disabled') {
+        assert.match(messages[0], /Scheduled monitoring is disabled/);
+        assert.doesNotMatch(messages[0], /Next attempt allowed after|scheduled poll may try again/);
+      } else if (scenario === 'elapsed') {
+        assert.match(messages[0], /Retry delay has elapsed/); assert.match(messages[0], /stale — do not treat this as current/);
+      } else {
+        assert.match(messages[0], /Data updates: retry cooldown/);
+        assert.match(messages[0], /Next attempt allowed after: .*Asia\/Manila \(UTC\+08:00\)/);
+        assert.match(messages[0], /Reason is not recorded/);
+        assert.match(messages[0], scenario === 'stale' ? /stale — do not treat this as current/ : /No cached reading/);
+      }
+      assert.equal(await kv.get('monitor:v1'), before);
+    } finally { await runtime.dispose(); }
+  }
+});
+
 test('workerd resumes a synthetic daytime confirmation and sends the duration-aware alert', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });

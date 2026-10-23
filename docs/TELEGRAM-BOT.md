@@ -7,7 +7,7 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 | Command / button | Result |
 | --- | --- |
 | `/start`, `/help` | Explain available commands, manual reports and limits. |
-| `/status` | Show cached SOC/discharge, source time/age, the separate charging report and optional cached weather with its own freshness. No Deye or weather request. |
+| `/status` | Show cached SOC/discharge, source time/age, update/cooldown state, the separate charging report and optional cached weather. No Deye or weather request. |
 | `/charging` | Report “I am charging” for six hours. This records user confirmation. |
 | `/charging PROFILE_ID` | Also report one of the owner's configured profile IDs. This is not a measurement of EV power/current. |
 | `/stopped` | Report “I am not charging” for six hours. It does not send a stop command to equipment. |
@@ -79,6 +79,22 @@ The ordinary `npm run secrets:upload` command now includes these named values wh
 ## Freshness, settings and delivery behavior
 
 The status cache is populated only by accepted distinct readings. Duplicate/out-of-order samples do not replace it; a failed/stale upstream request leaves the older cached reading visible with its current age and stale label. A newly upgraded installation needs a successful scheduled reading before `/status` has data. A status request does not reset latches, write monitor state or trigger a new poll.
+
+### Cached update state
+
+Status reads the existing monitoring record once and shows a separate **Cached update status** section, including when no battery reading exists:
+
+| Cached situation | What status explains |
+| --- | --- |
+| Monitoring disabled | Scheduled monitoring is disabled; old retry times do not become promises of a new attempt. |
+| Future retry threshold | A retry cooldown is recorded. The next attempt is allowed after the displayed time; a later scheduled poll may try. |
+| Retry threshold reached/passed | The delay has elapsed; this does not establish that a poll ran or the service recovered. |
+| No recorded delay and no battery cache | Waiting for a cached reading. |
+| Battery cache and no recorded delay | No retry delay is recorded, independently of the reading's fresh/stale label. |
+
+This is cached status, not a live connection check. A cooldown can follow a failed request or rejected telemetry; the record has no reliable cause field, so status does not invent one from counters or raw metadata. It does not expose unknown upstream/error fields or identifiers. Retry times use the existing local-time/UTC-fallback formatter. If a finite stored threshold cannot be represented as a date, a fixed unavailable note preserves the battery response without exposing its raw value or changing the threshold. Essential invalid monitor state still follows the existing fail-closed path.
+
+Each request retains the existing bot/monitor reads, single replay write and bounded Telegram reply. It never polls Deye/weather, changes a cooldown, latches, report expiry or cached weather, or queues a health alert. A later successful scheduled reading can clear the monitor's existing cooldown; status only observes that stored result. KV can lag and no exact retry/delivery time is guaranteed. Proactive stale/restored notifications remain unimplemented and need a separate budget/design.
 
 Battery alert readings, cached status source times and manual-report expiry use the explicit `daytimeDischarge.timeZone` when present, including the zone name and offset at that instant. Example: `2026-10-23 06:00:01 Asia/Manila (UTC+08:00)`. No separate display preference or inferred location is added; installations without the daytime timezone retain their existing UTC strings. Date/year rollover, midnight and fractional/daylight-saving offsets are rendered from absolute timestamps. Six-hour expiry, callback ages, stale labels and the UTC command-day counter do not change; repeated local hours include different offsets. Weather forecast/retrieval text stays explicitly UTC. Changing the display does not refresh a reading, renew a report or grant an overnight exception.
 

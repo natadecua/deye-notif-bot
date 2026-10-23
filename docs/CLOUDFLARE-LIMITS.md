@@ -37,6 +37,8 @@ Configured profile-report buttons use the existing bot-state read/replay write, 
 
 Local battery reading/manual-expiry labels reuse the existing explicit daytime timezone and its single replaceable `Intl.DateTimeFormat`. It now includes minutes, seconds and an offset and is shared with window checks; no additional formatter map/history, KV/state/config field or provider request is added. UTC fallback uses the existing direct date formatting. The 864/912 write/day and subrequest design bounds remain unchanged. Additional `formatToParts`/offset rendering and the expanded formatter's cold/warm CPU still need production measurement.
 
+Cached update/cooldown status reuses the existing authorized monitor read, bot replay write and single Telegram reply. It adds only fixed branches/text and, for a future representable retry threshold, the existing date formatter. It adds no provider request, KV operation/key, state field, queue event or polling schedule. The 864/912 write/day and status-read/subrequest bounds remain unchanged under the same assumptions. Rendering CPU remains unmeasured in production; no live availability or exact retry/delivery guarantee is implied.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.
