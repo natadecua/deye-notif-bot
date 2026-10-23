@@ -6,6 +6,8 @@
 
 This proposal extends [the PRD](PRD.md) while preserving zero-cost per-owner hosting, an open-source repository and notification-only operation.
 
+**Synthetic walkthrough implemented:** `npm run setup:demo` rehearses the current separate setup, daytime/weather and Telegram-owner prompt flows with scripted answers and intercepted services. It reads only the public template and retains settings in memory; all real deployment/registration/receipt/CPU checks remain pending. Shared flows also preserve owner pairing during Deye-only credential replacement and require new pairing when the bot/chat changes. See [scope and recovery](SETUP-WALKTHROUGH.md). This does not implement the expanded automatic provisioning or challenge-based pairing proposed below.
+
 ## Experience to aim for
 
 One guided laptop setup, followed by day-to-day use in Telegram. No manual editing of namespace IDs or JSON, finding numeric chat IDs, copying credentials into commands, or keeping the laptop running afterward. A user needs their own Deye developer application, Telegram bot and Cloudflare account, but does not need a separate private GitHub repository merely to deploy from a public checkout.

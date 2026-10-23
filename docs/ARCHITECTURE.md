@@ -20,6 +20,9 @@ One owner's Cron invocation → Deye regional REST API → validated station rea
 | `src/telegram-settings.ts` | Pure owner-command parsing and validated settings overrides |
 | `scripts/cli.ts` | Laptop-only setup, offline preferences, preview, Telegram tests and secret upload |
 | `scripts/preferences.ts` | Testable notification/profile onboarding with injected prompts |
+| `scripts/owner-setup.ts` | Shared Deye/notification and Telegram-owner prompt flows with injected services; no file persistence |
+| `scripts/setup-demo.ts`, `scripts/setup-walkthrough.ts` | Automatic synthetic setup rehearsal using the public template and intercepted services |
+| `scripts/setup-hints.ts` | Fixed recovery guidance for known setup failures; no exception/URL reflection |
 
 Runtime uses only standard Workers APIs: `fetch`, Web Crypto, streams, KV and timers. npm dependencies are development/setup/test tooling, not runtime dependencies. `src/index.ts` keeps all routes at 404 by default; enabling Telegram commands handles only authenticated `POST /telegram/webhook`.
 
@@ -52,6 +55,8 @@ Messages distinguish measured battery discharge from an unknown load breakdown. 
 `ev.profiles` optionally contains 1–12 labelled discrete settings, each specified by current in amps **or** nominal power in watts, never both. IDs and labels are unique and bounded; values must respect the confirmed minimum and electrical configuration. Nominal power is a configuration estimate, not a measurement of actual EV demand. A MAX power rating is never converted into an asserted actual current. Profile-based messages list the supported options and require manual checking; they do not automatically select a setting or retain a generic intermediate amperage reduction that the car may not support. If profiles are absent, the original conditional reduction estimate remains available.
 
 The `npm run preferences` wizard performs no network/secret access and writes only local ignored settings. Applying it to a deployed Worker still requires deployment. Interactive tests inject deterministic prompts and synthetic settings; no real installation data or live account access is used.
+
+The real setup adapter delegates to shared prompt flows, then performs its existing local secret/config writes only after a successful result. Synthetic rehearsal invokes those same flows with in-memory inputs and injected transports; it has no live-file or network fallback. Replacing Deye credentials retains the same bot/chat's owner binding while removing obsolete Deye login context. Changing bot token/chat clears owner/webhook fields and disables local commands until pairing. The adapter still requires explicit upload/deployment/registration; final writes are not a cross-file transaction. This setup-only work does not enter the Worker bundle or change KV/CPU/request budgets.
 
 ## Optional forecast context
 

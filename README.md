@@ -64,6 +64,10 @@ The monitor requests weather only when a discharge notification needs it, at mos
 
 `/settings` and the offline preference summary show whether weather is enabled without printing coordinates. Authorized `/status` shows existing cached forecasts with their own age, retrieval time and attribution, independently of battery freshness. At one hour the forecast becomes stale and its hourly values are hidden; missing, invalid, future-dated or wrong-location context is unavailable. Status never fetches or refreshes weather: an eligible scheduled discharge notification can populate the cache. Weather location/eligibility still use the laptop wizard. Keep [Open-Meteo's terms](https://open-meteo.com/en/terms) and [data attribution](https://creativecommons.org/licenses/by/4.0/) in mind when adapting this personal installation to other uses. A Berlin-reference smoke request verified the client against the live weather API; actual Deye/Telegram/Cloudflare delivery, owner-location forecasts and production CPU remain unvalidated.
 
+## Rehearse setup without accounts
+
+Run `npm run setup:demo` after `npm ci` for an automatic, labelled synthetic walkthrough. It exercises the same setup and owner-pairing prompt flows used by the real CLI, plus daytime and weather preferences, using scripted answers and intercepted services. It reads only the public template, keeps settings in memory, and does not use environment credentials, edit owner files or contact providers. The example uses battery-only notifications, an illustrative Asia/Manila daytime window and synthetic city-level coordinates; it does not configure a Batangas forecast. It ends with fixed recovery examples and the live setup/deployment checks still pending. See [the walkthrough](docs/SETUP-WALKTHROUGH.md).
+
 ## Local setup
 
 Use Node.js **22.13 or newer**, npm, a DeyeCloud account with an OpenAPI application, a Telegram account/bot, and your own Cloudflare **Workers Free** account. Clone the repository onto your laptop:
@@ -104,6 +108,8 @@ npm run preview
 ```
 
 Preview does not alter alert state or send notifications. Tokens for setup/preview are kept in process memory only; the deployed monitor caches them in KV. For manual secret configuration, see [.dev.vars.example](.dev.vars.example); the password hash is also a secret. Environment variables with the listed names override the local file for CLI commands.
+
+Rerunning setup with replacement Deye credentials preserves the existing Telegram owner/webhook binding when the bot and chat stay the same; obsolete Deye company/mobile fields are cleared. Changing the Telegram token or chat clears that binding and disables local commands until fresh owner pairing. Apply the updated settings/secrets and complete webhook registration explicitly; a local change does not alter a deployed Worker by itself. Setup failures show fixed recovery guidance for known credential, region, reading and weather errors without echoing upstream details.
 
 ## Customize notifications and charging profiles
 

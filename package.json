@@ -10,6 +10,7 @@
   },
   "scripts": {
     "setup": "tsx scripts/cli.ts setup",
+    "setup:demo": "tsx scripts/setup-demo.ts",
     "preview": "tsx scripts/cli.ts preview",
     "telegram:test": "tsx scripts/cli.ts telegram-test",
     "check": "tsc --noEmit",
