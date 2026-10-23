@@ -8,6 +8,7 @@ import { jsonPost } from './http.ts';
 import { SafeError } from './errors.ts';
 import { chargingProfileReference } from './profiles.ts';
 import { weatherStatusText } from './weather.ts';
+import { profileReports, PROFILE_REPORT_HELP } from './profile-reports.ts';
 
 const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
@@ -89,12 +90,18 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (state.day !== day) { state.day = day; state.used = 0; }
     if (state.used >= 48) return ok();
     const c = validateConfig({ ...base, ...state.overrides });
-    let reply: string;
+    let reply: string, offerProfiles = false;
+    const reports = profileReports(c, state, now);
     const button = callback ? /^charging:(yes|no):(\d{1,16})$/.exec(callback.data as string) : null;
+    const selectedProfile = callback && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
     if (state.used === 47) {
       reply = 'Daily command limit reached. Try again after 00:00 UTC. Scheduled battery monitoring continues.';
-    } else if (callback && (!button || now < Number(button[2]) || now - Number(button[2]) > 30 * 60_000)) {
+    } else if (callback && ((!button && !selectedProfile) || (button && (now < Number(button[2]) || now - Number(button[2]) > 30 * 60_000)))) {
       reply = 'That confirmation has expired. Use /charging or /stopped to make a new manual report.';
+    } else if (selectedProfile) {
+      state.session!.profileId = selectedProfile;
+      reply = chargingSummary(state, c, now);
+      offerProfiles = true;
     } else if (button || /^\/(charging|stopped)(?:\s+\S+)?$/.test(command)) {
       const [verb, profileId] = command.slice(1).split(/\s+/);
       const charging = button ? button[1] === 'yes' : verb === 'charging';
@@ -104,6 +111,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
         state.session = { status: charging ? 'charging' : 'not_charging', source: 'manual', at: now, expiresAt: now + SESSION_MS,
           ...(profileId ? { profileId } : {}) };
         reply = chargingSummary(state, c, now) + '\nUse /stopped when you finish. Equipment changes remain manual.';
+        offerProfiles = charging;
       }
     } else if (command === '/status') {
       reply = await status(env, c, now) + `\n\n${chargingSummary(state, c, now)}`;
@@ -117,6 +125,8 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
       if (result.changed) state.overrides = settingsOverrides(result.config);
       reply = result.reply;
     }
+    const replyMarkup = offerProfiles ? await reports.menu() : undefined;
+    if (replyMarkup) reply += `\n\n${PROFILE_REPORT_HELP}`;
     state.lastUpdateId = update.update_id as number; state.lastHandledAt = now; state.used++;
     await env.STATE.put(BOT_KEY, JSON.stringify(state));
     persisted = true;
@@ -128,7 +138,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
           { callback_query_id: callback.id, text: 'Report processed. Check the bot reply.' }, {}, deps, 'telegram', 1);
       } catch { /* Acknowledgement failure must not suppress the ordinary confirmation reply. */ }
     }
-    await sendTelegram(env, reply, deps);
+    await sendTelegram(env, reply, deps, replyMarkup);
     return ok();
   } catch {
     return persisted ? ok() : new Response('Temporarily unavailable', { status: 503 });

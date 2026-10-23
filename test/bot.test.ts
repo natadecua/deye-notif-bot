@@ -5,6 +5,7 @@ import { runMonitor } from '../src/monitor.ts';
 import { validateConfig } from '../src/config.ts';
 import { BASE_TIME, config, harness, json } from './helpers.ts';
 import { initialState } from '../src/alerts.ts';
+import { sha256 } from '../src/deye.ts';
 
 // Entirely synthetic installation, sender/chat identifiers, token and webhook secret.
 const secret = 'synthetic-webhook-secret-1234567890';
@@ -213,6 +214,124 @@ test('old confirmation buttons do not renew or start a charging session', async 
     message: { date: BASE_TIME / 1000, chat: { id: 456 } }, data: `charging:yes:${BASE_TIME - 31 * 60_000}` } });
   assert.equal(botState(h).session, undefined);
   assert.match(h.sent[0], /expired/i);
+});
+
+// Synthetic profiles and opaque callback context; none represents live EV telemetry.
+function profileSetup() {
+  const h = setup();
+  h.env.MONITOR_CONFIG = config({ telegram: { enabled: true }, ev: { enabled: true, confirmed: true,
+    phases: 1, voltage: 230, minimumAmps: 8, profiles: [
+      { id: '8a', label: '8 A', type: 'amps', amps: 8 },
+      { id: '13a', label: '13 A', type: 'amps', amps: 13 },
+      { id: 'max', label: 'MAX', type: 'power', nominalWatts: 7000 },
+    ] } });
+  return h;
+}
+const lastReply = (h: ReturnType<typeof setup>) => JSON.parse(String(h.calls.filter(c => c.url.endsWith('/sendMessage')).at(-1)!.init?.body));
+const profileCallback = async (h: ReturnType<typeof setup>, index = 1, at = BASE_TIME) =>
+  `profile:${at}:${index}:${(await sha256(JSON.stringify(validateConfig(h.env.MONITOR_CONFIG).ev))).slice(0, 16)}`;
+const buttonUpdate = (h: ReturnType<typeof setup>, data: string, id = 2) => ({ update_id: id,
+  callback_query: { id: 'synthetic-profile-button', from: { id: 789 },
+    message: { date: Math.floor(h.clock.time / 1000), chat: { id: 456 }, text: '/stopped' }, data } });
+
+test('charging reports offer only configured manual profile buttons with bounded callback data', async () => {
+  const h = profileSetup(); await h.send(h.message('/charging'));
+  const reply = lastReply(h), buttons = reply.reply_markup?.inline_keyboard.flat();
+  assert.deepEqual(buttons?.map((b: { text: string }) => b.text), ['I use 8 A', 'I use 13 A', 'I use MAX']);
+  assert(buttons.every((b: { callback_data: string }) => Buffer.byteLength(b.callback_data) <= 64));
+  assert.equal(buttons[1].callback_data, await profileCallback(h));
+  assert.match(reply.text, /manual report/i); assert.match(reply.text, /30 minutes/);
+  assert.match(reply.text, /does not.*overnight/i); assert.match(reply.text, /\/charging.*renew/i);
+  assert.doesNotMatch(reply.text, /EV detected|set your charger|32 A/);
+});
+
+test('profile selection records manual evidence, preserves expiry and never polls providers or writes monitor state', async () => {
+  const h = profileSetup(); await h.send(h.message('/charging'));
+  const before = structuredClone(botState(h).session); h.advance(3000);
+  h.kv.puts.length = 0; h.calls.length = 0;
+  const reads: string[] = [], get = h.kv.get.bind(h.kv);
+  h.kv.get = async key => { reads.push(key); return get(key); };
+  await h.send(buttonUpdate(h, await profileCallback(h)));
+  assert.deepEqual(botState(h).session, { ...before, profileId: '13a' });
+  assert.match(h.sent.at(-1)!, /Reported profile: 13 A/);
+  assert.match(h.sent.at(-1)!, /Source: manual confirmation/);
+  assert.match(h.sent.at(-1)!, /not measured EV power/i);
+  assert.deepEqual(h.kv.puts.map(p => p.key), ['telegram:v1']);
+  assert.deepEqual(reads, ['telegram:v1']);
+  assert.deepEqual(h.calls.map(c => new URL(c.url).pathname.split('/').at(-1)), ['answerCallbackQuery', 'sendMessage']);
+  const count = h.calls.length, saved = h.kv.data.get('telegram:v1');
+  h.advance(3000); await h.send(buttonUpdate(h, await profileCallback(h)));
+  assert.equal(h.calls.length, count); assert.equal(h.kv.data.get('telegram:v1'), saved);
+});
+
+test('Yes charging callbacks and explicit profile commands also offer the configured report menu', async () => {
+  for (const via of ['yes', 'command']) {
+    const h = profileSetup();
+    await h.send(via === 'yes' ? buttonUpdate(h, `charging:yes:${BASE_TIME}`, 1) : h.message('/charging max'));
+    assert.equal(lastReply(h).reply_markup?.inline_keyboard.flat().length, 3);
+    if (via === 'command') assert.match(h.sent[0], /Reported profile: MAX/);
+  }
+});
+
+test('profile menus support the maximum configured list and omit buttons for disabled hints, no profiles or stopped reports', async () => {
+  const many = profileSetup(), c = validateConfig(many.env.MONITOR_CONFIG);
+  many.env.MONITOR_CONFIG = { ...c, ev: { ...c.ev, profiles: Array.from({ length: 12 }, (_, i) => ({
+    id: `profile-${i}`, label: `Setting ${i + 1}`, type: 'amps' as const, amps: 8 + i,
+  })) } };
+  await many.send(many.message('/charging'));
+  const buttons = lastReply(many).reply_markup?.inline_keyboard.flat();
+  assert.equal(buttons?.length, 12);
+  assert(buttons.every((b: { callback_data: string }) => Buffer.byteLength(b.callback_data) <= 64));
+  for (const reason of ['disabled', 'none', 'stopped']) {
+    const h = profileSetup(), current = validateConfig(h.env.MONITOR_CONFIG);
+    if (reason === 'disabled') h.env.MONITOR_CONFIG = { ...current, ev: { ...current.ev, enabled: false } };
+    if (reason === 'none') h.env.MONITOR_CONFIG = { ...current, ev: { ...current.ev, profiles: undefined } };
+    await h.send(h.message(reason === 'stopped' ? '/stopped' : '/charging'));
+    assert.equal(lastReply(h).reply_markup, undefined);
+  }
+});
+
+for (const reason of ['old', 'future', 'stopped', 'expired', 'superseded', 'changed', 'reordered', 'disabled', 'invalid', 'index'] as const) {
+  test(`a ${reason} profile menu cannot alter or renew a charging session`, async () => {
+    const h = profileSetup(); await h.send(h.message('/charging'));
+    let data = await profileCallback(h); h.advance(3000);
+    if (reason === 'old') h.advance(30 * 60_000);
+    if (reason === 'future') data = await profileCallback(h, 1, h.clock.time + 1);
+    if (reason === 'expired') h.advance(6 * 3600_000);
+    if (reason === 'stopped' || reason === 'superseded') {
+      await h.send(h.message(reason === 'stopped' ? '/stopped' : '/charging', 2)); h.advance(3000);
+    }
+    const c = validateConfig(h.env.MONITOR_CONFIG);
+    if (reason === 'changed') c.ev.profiles![1] = { id: '13a', label: 'Different setting', type: 'amps', amps: 16 };
+    if (reason === 'reordered') c.ev.profiles!.reverse();
+    if (reason === 'disabled') c.ev.enabled = false;
+    if (reason === 'invalid') data = data.slice(0, -16) + '0000000000000000';
+    if (reason === 'index') data = await profileCallback(h, 12);
+    const before = structuredClone(botState(h).session);
+    await h.send(buttonUpdate(h, data, 3));
+    assert.deepEqual(botState(h).session, before);
+    assert.match(h.sent.at(-1)!, /expired|unavailable|new manual report/i);
+    assert.equal(lastReply(h).reply_markup, undefined);
+  });
+}
+
+test('profile callbacks retain pre-read authorization and the existing daily command budget', async () => {
+  const h = profileSetup(), data = await profileCallback(h); let reads = 0;
+  const get = h.kv.get.bind(h.kv); h.kv.get = async key => { reads++; return get(key); };
+  for (const field of ['from', 'chat'] as const) {
+    const update = buttonUpdate(h, data);
+    if (field === 'from') update.callback_query.from.id = 999;
+    else update.callback_query.message.chat.id = 999;
+    assert.equal((await h.send(update)).status, 403);
+  }
+  assert.equal((await handleTelegramRequest(h.request(buttonUpdate(h, data), 'synthetic-wrong'), h.env, h.deps)).status, 403);
+  assert.equal(reads, 0); assert.equal(h.calls.length, 0); assert.equal(h.kv.puts.length, 0);
+  await h.send(h.message('/charging'));
+  const s = botState(h), before = structuredClone(s.session); s.used = 47;
+  h.kv.data.set('telegram:v1', JSON.stringify(s)); h.advance(3000);
+  await h.send(buttonUpdate(h, data));
+  assert.deepEqual(botState(h).session, before); assert.match(h.sent.at(-1)!, /daily command limit/i);
+  assert.equal(lastReply(h).reply_markup, undefined);
 });
 test('duplicate/out-of-order updates cannot repeat writes, replies or session confirmation', async () => {
   const h = setup(); const update = h.message('/charging', 4);

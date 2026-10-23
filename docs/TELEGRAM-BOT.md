@@ -12,6 +12,7 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 | `/charging PROFILE_ID` | Also report one of the owner's configured profile IDs. This is not a measurement of EV power/current. |
 | `/stopped` | Report “I am not charging” for six hours. It does not send a stop command to equipment. |
 | Yes / No buttons | Confirm charging status from an EV-enabled discharge alert. Buttons expire 30 minutes after the source reading; old buttons cannot start a fresh session. |
+| I use PROFILE buttons | After a charging report, select one of the configured profiles as manual evidence. Keeps the original report expiry and never changes equipment. |
 | `/settings` | View battery notification switches and thresholds. |
 | `/full on`, `/full off` | Change only the full notification preference. |
 | `/discharge on`, `/discharge off` | Change only the sustained-discharge preference. |
@@ -22,6 +23,14 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 Example journey with synthetic values: the bot reports the house battery supplying 600 W and asks whether the owner is charging an EV. The owner presses **Yes, I'm charging**. The bot records **Source: manual confirmation**, displays its expiry and offers `/stopped`. A subsequent `/status` shows the cached battery measurement and that separate manual report. The bot still cannot establish which load caused battery discharge.
 
 After expiry, charging status becomes **unknown**, never an invented “stopped” state. This version has no measured EV telemetry adapter. Future direct detection must identify an actual supported vehicle/charger source; aggregate house or battery readings are not EV detection.
+
+### Report a configured charging profile
+
+With EV hints and confirmed profiles enabled, `/charging`, `/charging PROFILE_ID` and a valid **Yes, I'm charging** callback offer one **I use …** button per configured profile (up to 12). For example, **I use 8 A**, **I use 13 A** and **I use MAX** describe settings the owner reports using. They do not set the charger, measure its current/power, attribute battery use to it or grant an overnight exception. The normal nighttime battery priority remains the house.
+
+Profile buttons are usable for up to 30 minutes from the charging report. Selecting one changes only the existing manual session's reported profile and preserves its original six-hour expiry. `/charging` explicitly starts/renews a report; `/stopped` replaces it with a manual “not charging” report. Status and later notifications reuse that evidence. Stopped, expired, future-dated or replaced sessions reject old profile menus. Changed/reordered profile definitions also invalidate old menus so a button cannot silently acquire a different meaning. Disabled EV hints or absent profiles omit the menu and reject its callbacks. Rejected callbacks show fixed guidance without changing the session.
+
+Callbacks contain the session time, a bounded profile index and a short SHA-256 context of the configured EV definitions, all in at most 44 ASCII bytes. The context is a change guard, not authorization or a delivery guarantee; secret-header, owner/chat and replay checks still apply before private state access. At most one digest is computed per eligible request and is reused for validation/rendering. No new persisted field, KV operation, provider request or background refresh is added. Profile callbacks share the existing command budget, persistence-before-reply order, one acknowledgement and one reply attempt; the final budget notice cannot mutate the session. Old Telegram messages may retain visible buttons after expiry, but those callbacks are rejected.
 
 ### Distinguishing battery output, household loads and EV charging
 

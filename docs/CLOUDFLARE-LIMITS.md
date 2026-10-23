@@ -33,6 +33,8 @@ KV's one-write-per-second rule cannot be enforced globally by this Worker under 
 
 Authorized `/status` renders optional weather from the same monitor cache read it already uses for battery data. It makes no Deye/weather request, writes no forecast guard or monitor state, and retains the single bounded Telegram reply plus normal command replay write. Existing read/write/subrequest design bounds are unchanged. Decoding up to six points and formatting up to three adds CPU that still needs live measurement.
 
+Configured profile-report buttons use the existing bot-state read/replay write, one Telegram reply and, for callbacks, one acknowledgement. There is no monitor read/write, new state field/key, telemetry/weather request or extra retry. Up to 12 buttons use callback data of at most 44 ASCII bytes. At most one invocation-local SHA-256 digest of EV definitions is computed for eligible profile work; no global cache/history is retained. The 864/912 write/day and existing callback subrequest design bounds remain unchanged, under their existing assumptions. Production CPU for hashing/menu rendering still requires measurement.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.

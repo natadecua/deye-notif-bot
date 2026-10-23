@@ -137,6 +137,8 @@ After normal setup, send `/start` to your bot and run `npm run telegram:setup` o
 
 Use `/status` for cached battery data, `/charging` to confirm you are charging, `/stopped` when you finish, and `/settings` for notification preferences. EV-enabled discharge alerts offer **Yes, I'm charging** and **No, I'm not** buttons. Reports are explicitly manual, expire to unknown after six hours, and never establish that an EV caused battery discharge. No EV/charger detection API is integrated yet.
 
+With configured EV profiles, a charging confirmation also offers **I use 8 A**, **I use 13 A**, **I use MAX**, or the owner's own labels. These buttons report the setting being used; they never change equipment or grant an overnight exception. The menu expires after 30 minutes and selection keeps the report's original six-hour expiry. `/charging` renews a report and `/stopped` replaces it with “not charging”. Old menus are rejected after a stopped/new/expired report or profile-definition change. Each interaction shares the existing command budget. See [manual profile reports](docs/TELEGRAM-BOT.md#report-a-configured-charging-profile).
+
 ## Telegram setup
 
 1. In Telegram, open the verified **@BotFather**, use `/newbot`, and keep the bot token private.

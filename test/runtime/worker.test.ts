@@ -197,6 +197,62 @@ test('workerd renders fresh/stale weather from authorized status cache with only
   }
 });
 
+test('workerd records configured profile buttons as expiring manual reports and rejects them after stopped', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const secret = 'synthetic-webhook-secret-1234567890';
+  const messages: { text: string; reply_markup?: { inline_keyboard: { text: string; callback_data: string }[][] } }[] = [];
+  const methods: string[] = [];
+  const runtime = new Miniflare(convertV4MiniflareOptions({
+    modules: true, script: bundled.outputFiles[0].text, cf: false,
+    compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789',
+      MONITOR_CONFIG: config({ telegram: { enabled: true }, ev: { enabled: true, confirmed: true,
+        phases: 1, voltage: 230, minimumAmps: 8, profiles: [
+          { id: 'low', label: '8 A', type: 'amps', amps: 8 },
+          { id: 'max', label: 'MAX', type: 'power', nominalWatts: 7000 },
+        ] } }) },
+    outboundService: async (request: LocalRequest) => {
+      assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+      const method = new URL(request.url).pathname.split('/').at(-1)!;
+      assert(['sendMessage', 'answerCallbackQuery'].includes(method)); methods.push(method);
+      if (method === 'sendMessage') messages.push(await request.json() as typeof messages[number]);
+      return new LocalResponse(JSON.stringify({ ok: true }));
+    },
+  }));
+  try {
+    const post = (body: unknown, header = secret) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+      method: 'POST', headers: { 'X-Telegram-Bot-Api-Secret-Token': header }, body: JSON.stringify(body),
+    });
+    const command = (text: string, id: number) => ({ update_id: id, message: { date: Math.floor(Date.now() / 1000),
+      from: { id: 789 }, chat: { id: 456 }, text } });
+    assert.equal((await post(command('/charging', 1))).status, 200);
+    const buttons = messages[0].reply_markup!.inline_keyboard.flat();
+    assert.deepEqual(buttons.map(b => b.text), ['I use 8 A', 'I use MAX']);
+    const kv = await runtime.getKVNamespace('STATE');
+    const before = await kv.get('telegram:v1', 'json') as { session: { at: number; expiresAt: number } };
+    const selection = (id: number) => ({ update_id: id, callback_query: { id: 'synthetic-runtime-profile', from: { id: 789 },
+      message: { date: Math.floor(Date.now() / 1000), chat: { id: 456 }, text: '/stopped' }, data: buttons[1].callback_data } });
+    assert.equal((await post(selection(2), 'synthetic-wrong')).status, 403); assert.equal(methods.length, 1);
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    assert.equal((await post(selection(2))).status, 200);
+    const selected = await kv.get('telegram:v1', 'json') as { session: { profileId: string; source: string; at: number; expiresAt: number } };
+    assert.equal(selected.session.profileId, 'max'); assert.equal(selected.session.source, 'manual');
+    assert.equal(selected.session.at, before.session.at); assert.equal(selected.session.expiresAt, before.session.expiresAt);
+    assert.match(messages[1].text, /Reported profile: MAX/); assert.match(messages[1].text, /not measured EV power/);
+    assert.doesNotMatch(messages[1].text, /32 A|EV detected/);
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    assert.equal((await post(command('/stopped', 3))).status, 200); assert.equal(messages[2].reply_markup, undefined);
+    const stopped = await kv.get('telegram:v1', 'json') as { session: unknown };
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    assert.equal((await post(selection(4))).status, 200);
+    const rejected = await kv.get('telegram:v1', 'json') as { session: unknown };
+    assert.deepEqual(rejected.session, stopped.session); assert.match(messages[3].text, /expired/);
+    assert.equal(await kv.get('monitor:v1'), null);
+    assert.deepEqual(methods, ['sendMessage', 'answerCallbackQuery', 'sendMessage', 'sendMessage', 'answerCallbackQuery', 'sendMessage']);
+  } finally { await runtime.dispose(); }
+});
+
 test('workerd resumes a synthetic daytime confirmation and sends the duration-aware alert', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
