@@ -39,6 +39,10 @@ Local battery reading/manual-expiry labels reuse the existing explicit daytime t
 
 Cached update/cooldown status reuses the existing authorized monitor read, bot replay write and single Telegram reply. It adds only fixed branches/text and, for a future representable retry threshold, the existing date formatter. It adds no provider request, KV operation/key, state field, queue event or polling schedule. The 864/912 write/day and status-read/subrequest bounds remain unchanged under the same assumptions. Rendering CPU remains unmeasured in production; no live availability or exact retry/delivery guarantee is implied.
 
+## Proposed health notices: budget review (2026-10-24)
+
+The official Workers limits/pricing, KV limits and consistency pages below were rechecked for the documentation-only [data-health proposal](DATA-HEALTH-ALERTS.md#refreshed-resource-envelope). Its calculation retains 288 polls/day, at most two monitor checkpoints plus one token write per run, and the existing **864/912 write/day** bounds by sharing the two event slots and two Telegram attempts. No new key, provider poll or checkpoint is budgeted. Typical cooldown-path writes could increase if health were implemented, even though the maximum is unchanged. CPU remains unmeasured; the proposal is not deployed or enabled. See its acceptance gates before changing runtime behavior.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.
