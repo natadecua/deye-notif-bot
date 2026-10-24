@@ -26,6 +26,13 @@ export interface WeatherConfig {
   longitude?: number;
   nonCommercialConfirmed?: boolean;
 }
+// Preparation only: scheduled health delivery is not connected yet.
+export interface DataHealthConfig {
+  enabled: boolean;
+  warnAfterMinutes?: number;
+  delivery?: 'all-hours' | 'daytime';
+  allHoursConfirmed?: boolean;
+}
 export interface Config {
   enabled: boolean;
   region: 'eu' | 'am' | 'india';
@@ -45,6 +52,7 @@ export interface Config {
   telegram?: { enabled: boolean };
   daytimeDischarge?: DaytimeDischarge;
   weather?: WeatherConfig;
+  dataHealth?: DataHealthConfig;
 }
 export interface Secrets {
   DEYE_APP_ID: string;

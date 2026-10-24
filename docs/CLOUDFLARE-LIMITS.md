@@ -43,6 +43,8 @@ Cached update/cooldown status reuses the existing authorized monitor read, bot r
 
 The official Workers limits/pricing, KV limits and consistency pages below were rechecked for the documentation-only [data-health proposal](DATA-HEALTH-ALERTS.md#refreshed-resource-envelope). Its calculation retains 288 polls/day, at most two monitor checkpoints plus one token write per run, and the existing **864/912 write/day** bounds by sharing the two event slots and two Telegram attempts. No new key, provider poll or checkpoint is budgeted. Typical cooldown-path writes could increase if health were implemented, even though the maximum is unchanged. CPU remains unmeasured; the proposal is not deployed or enabled. See its acceptance gates before changing runtime behavior.
 
+The later preparation-only foundation validates an optional `dataHealth` configuration block, default off when omitted. Its pure lifecycle is not imported by monitor/status and does not enter the Worker bundle; no health metadata is read/written or sent. The config guard adds bounded checks, increasing the dry-run bundle to 56.57 KiB / 15.83 KiB gzip; production validation CPU remains unmeasured. Current KV/provider/outbox bounds are unchanged, with no new operation/key. Health dispatch and CI configuration allowlisting remain gated future work.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.

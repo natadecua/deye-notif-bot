@@ -12,7 +12,7 @@ GitHub Actions validates pull requests and pushes to `main` on Node.js 22 and 24
 
 The laptop wizard supports independent notification switches and configurable charging profiles. Optional [Telegram commands](docs/TELEGRAM-BOT.md) add cached status, owner-authorized settings, expiring manual charging reports and yes/no confirmation buttons. Optional Open-Meteo forecasts can add weather context to discharge alerts. Direct EV detection, automatic profile selection and weather/history-based charging plans remain future work. The [PRD](docs/PRD.md), [setup proposal](docs/ONBOARDING.md) and [improvement loop](docs/IMPROVEMENT-LOOP.md) distinguish implemented slices from that roadmap.
 
-Proactive missing-data/recovery notices are [a design proposal](docs/DATA-HEALTH-ALERTS.md), not an enabled feature. It specifies explicit opt-in, startup grace, distinct fresh recovery, shared queue limits and a Free-plan budget before implementation. Current `/status` remains a cached view and never forces a poll or sends a health alert.
+Proactive missing-data/recovery delivery remains [future work](docs/DATA-HEALTH-ALERTS.md). Default-off configuration validation and a pure lifecycle foundation are tested, but scheduled monitoring does not call or persist that lifecycle, and no wizard/command enables health notices. Keep `dataHealth` omitted from production configuration; CI delivery deliberately does not allow it yet. Current `/status` remains a cached view and never forces a poll or sends a health alert.
 
 ## Alerts
 
