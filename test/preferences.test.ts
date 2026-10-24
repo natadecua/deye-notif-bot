@@ -26,7 +26,7 @@ test('full notifications can be disabled independently while discharge still wor
   h.reading(100, 400); await runMonitor(h.env, h.deps);
   h.advance(); h.reading(100, 500); await runMonitor(h.env, h.deps);
   assert.equal(h.sent.length, 1);
-  assert.match(h.sent[0], /supplying sustained demand/);
+  assert.match(h.sent[0], /House battery supplying power/);
   assert.equal(stored(h).fullArmed, false);
 });
 test('discharge notifications can be disabled independently while full still works', async () => {
@@ -34,7 +34,7 @@ test('discharge notifications can be disabled independently while full still wor
   h.reading(99, 400); await runMonitor(h.env, h.deps);
   h.advance(); h.reading(100, 500); await runMonitor(h.env, h.deps);
   assert.equal(h.sent.length, 1);
-  assert.match(h.sent[0], /reached 100%/);
+  assert.match(h.sent[0], /Charge: 100%/);
   assert.equal(stored(h).dischargeArmed, false);
 });
 test('muted cycles stay tracked and re-enabling does not send an old full event', async () => {
@@ -122,6 +122,8 @@ test('profile-based messages show nominal options, not unsupported intermediate 
   assert.match(message, /13 A.*2\.99 kW/);
   assert.match(message, /MAX.*7 kW/);
   assert.match(message, /nominal estimates/);
+  assert.match(message, /Your configured settings \(nominal estimates\):\n/);
+  assert.match(message, /Battery discharge does not measure EV power; solar or grid may supply part of charging demand/);
   assert.match(message, /amperage is unknown/);
   assert.doesNotMatch(message, /Approximate reduction|32 A|30\.4 A/);
 });

@@ -6,24 +6,71 @@ A small, MIT-licensed Cloudflare Worker that sends Telegram messages about a hou
 
 Each installation runs in its owner's Cloudflare account and calls Deye and Telegram directly. There is no shared credential service.
 
+GitHub Actions validates pull requests and pushes to `main` on Node.js 22 and 24. An optional manual Cloudflare deployment workflow reruns all checks before releasing from `main`; configure the owner's `production` environment first. See [CI/CD setup](docs/CI-CD.md).
+
 **Implementation status:** implemented and validated with synthetic local tests, a local Workers runtime, and a Wrangler deployment dry run. No real Deye credentials or Telegram bot were supplied. Live account access, actual installation units/time formats, live messages, production CPU usage, and cloud scheduling have **not** been validated by this project session. See [validation notes](docs/VALIDATION.md).
 
-See the [PRD audit and proposed charging-advice onboarding](docs/PRD.md) and [seamless Cloudflare/Telegram setup proposal](docs/ONBOARDING.md) for the exact implemented feature checklist and the expanded roadmap. Independent notification switches and configurable charging profiles are implemented in the laptop wizard. Telegram settings menus, charging-session tracking, automatic profile selection, pause recommendations and weather/history planning are **not implemented yet**. The current setup is the laptop wizard described below.
+The laptop wizard supports independent notification switches and configurable charging profiles. Optional [Telegram commands](docs/TELEGRAM-BOT.md) add cached status, owner-authorized settings, expiring manual charging reports and yes/no confirmation buttons. Optional Open-Meteo forecasts can add weather context to discharge alerts. Direct EV detection, automatic profile selection and weather/history-based charging plans remain future work. The [PRD](docs/PRD.md), [setup proposal](docs/ONBOARDING.md) and [improvement loop](docs/IMPROVEMENT-LOOP.md) distinguish implemented slices from that roadmap.
+
+Default-off [missing-data/recovery delivery](docs/DATA-HEALTH-ALERTS.md) now has synthetic monitor/runtime coverage, including notices during Deye cooldown without releasing stale battery advice. It shares the two-event outbox, preserves battery priority and uses no new provider poll or KV key. Owner setup/status visibility and CI allowlisting remain unfinished: keep `dataHealth` omitted from production configuration until those enablement gates pass. Current `/status` remains a cached view and never forces a poll or sends a health alert.
 
 ## Alerts
 
 - Full charge: SOC **≥ 100%** by default; once per cycle, rearmed strictly **below 97%**. The threshold is configurable. Starting the monitor while already full produces a full alert.
 - Sustained discharge: **> 300 W** in **two distinct, fresh, consecutive readings**; rearmed strictly **below 100 W**. Repeated polls of one timestamp never count as extra readings. Readings at or below 300 W break confirmation.
-- Discharge messages say **“If the EV is charging…”**. Inverter telemetry cannot identify the EV as the cause.
+- Discharge messages label **battery discharge** and an **unknown load breakdown**. This reading does not measure total home use or separate appliances from EV charging. Optional EV hints stay conditional; a current manual “not charging” report suppresses EV reduction advice. Installations with EV hints off receive battery-only alerts.
 - Optional estimate when no fixed profiles are configured: `ceil(discharge W / voltage)` for single-phase, or `ceil(discharge W / (3 × line-to-neutral voltage))` for confirmed balanced three-phase. Setup requires confirmed phases, voltage and the charger's supported minimum. It never infers present EV amperage or recommends a target setting. Check present current yourself; reduce only if the resulting setting remains at or above the documented minimum. Otherwise consider pausing manually.
 
-Example:
+Messages use clear event titles and separate charge/power lines. Battery reading times and manual-report expiry use the explicitly configured daytime installation timezone, labelled with its name and UTC offset. Without that setting, existing UTC text is retained. A charge target below 100% is labelled “charge target reached”. Example without a configured timezone (synthetic):
 
-> House battery is supplying sustained demand: 800 W. Discharge exceeded 300 W in two distinct readings.<br>
+> ⚡ House battery supplying power<br>
+> Battery discharge: 800 W<br>
+> Charge: 90%<br>
+> Above 300 W in two distinct readings.<br>
+> Load breakdown: unknown. Battery output alone does not identify individual loads or total home consumption.<br>
+> Household / EV split: unknown.<br>
+> EV charging: unknown<br>
 > If the EV is charging, consider reducing its charging current manually. Inverter telemetry cannot identify the EV as the cause.<br>
 > Approximate reduction: 4 A (single-phase) at 230 V line-to-neutral. Current EV amperage is unknown: check it first.
 
-The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp. If you configure discrete charging profiles, the message instead lists only those supported choices with nominal power estimates; it does not propose an unsupported intermediate reduction or infer MAX amperage. No profile is selected automatically.
+The example has EV hints enabled. The complete message includes the charger minimum, an explicit condition on any adjustment, and the reading's UTC timestamp. A valid manual charging report replaces “EV charging: unknown” with the owner's report and expiry; the household/EV power split remains unknown. A “not charging” report hides reduction/profile advice until the report expires or changes. If you configure discrete charging profiles, the message instead lists only those supported choices with nominal power estimates; it does not propose an unsupported intermediate reduction or infer MAX amperage. No profile is selected automatically.
+
+## Optional daytime battery-use alert
+
+To allow short cloud dips, use `npm run daytime:setup`. This offline wizard lets you choose the installation timezone, a fixed daytime window and the minimum high-discharge duration. It saves only the ignored local settings; apply them to an existing Worker with a separate manual deployment. For Batangas City, use **Asia/Manila**, the editable **06:00–18:00** window and **15 minutes**. The existing watt trigger stays **above 300 W** unless changed in preferences. These are owner-selected settings, not defaults for every installation.
+
+During that window, fresh high-discharge samples must span at least 15 minutes before the alert. With normal five-minute samples this takes four readings. A low/invalid sample or a long gap restarts confirmation; repeated timestamps do not advance it. The alert stays latched until power falls below the existing rearm threshold, and starts a fresh cycle in the next local daytime window. Nighttime discharge alerts and after-window retries are suppressed; full-battery alerts keep their existing behavior. Sampling cannot establish uninterrupted discharge between readings.
+
+The new message starts **☀️ Daytime battery use**, followed by battery discharge, SOC, the duration and configured window. It reports measured battery use regardless of whether an EV session is known. Optional charging reports/advice remain separate. Weather context can be enabled separately below; overnight reserve planning remains unimplemented.
+
+For private configuration/CI, the optional `MONITOR_CONFIG` property is:
+
+```json
+"daytimeDischarge": {
+  "timeZone": "Asia/Manila",
+  "startHour": 6,
+  "endHour": 18,
+  "minimumMinutes": 15
+}
+```
+
+Omit that property to retain the original all-day/two-reading rule, or restore that rule through the same wizard. Changing only the daytime policy cancels old discharge advice and resets its confirmation while preserving full-charge cycles. `/settings` shows the active rule when optional bot commands are enabled. See [weather options and limits](docs/RESERVE-ALERTS.md#optional-weather-context) for the next step.
+
+The same `daytimeDischarge.timeZone` now makes battery reading/expiry labels local: for example, `22 Oct 2026, 16:24:07 Asia/Manila (UTC+08:00)`. Status and expiry use numeric dates with the same zone/offset. There is no new display-zone preference, location lookup or timezone guess from station metadata or weather coordinates. Source instants, freshness, six-hour report duration and 30-minute button limits are unchanged; UTC offsets distinguish repeated daylight-saving hours. Weather forecast/retrieval labels and the command budget's UTC day remain UTC. Applying the display change still requires a separate manual code release.
+
+## Optional weather context
+
+Run `npm run weather:setup` to enable Open-Meteo context locally. Confirm eligibility for its free non-commercial API and enter an approximate latitude/longitude for your installation; city-level coordinates are sufficient. The offline wizard preserves other preferences and saves only ignored `wrangler.jsonc`. Apply through a separate manual deployment; when using GitHub delivery, update the private configuration snapshot as well. No API key or additional runtime dependency is needed. Weather defaults off.
+
+Eligible discharge notifications can include the next three hourly cloud-cover/radiation forecasts, the retrieval time and Open-Meteo/CC BY 4.0 attribution. Radiation is a previous-hour model average in W/m², not measured panel output or available charger power. The forecasts are rounded and do not predict exactly when a cloud will clear, detect EV charging or authorize overnight charging. The owner's normal nighttime policy still reserves the battery for the house.
+
+The monitor requests weather only when a discharge notification needs it, at most once per hour under the documented stable-KV/no-overlap assumptions. It caches up to six forecast hours in existing monitor state, rejects unverified units/invalid values, and refuses stale/future/wrong-location context. A failed or unavailable forecast adds a fixed unavailable note; it does not change battery confirmation, Deye backoff or Telegram retries. Full/muted/out-of-window alerts make no weather request. The request has one attempt, a 1.5-second deadline, a 16 KiB body cap and no followed redirects. Context shares the existing state checkpoints, so no KV reads/writes are added.
+
+`/settings` and the offline preference summary show whether weather is enabled without printing coordinates. Authorized `/status` shows existing cached forecasts with their own age, retrieval time and attribution, independently of battery freshness. At one hour the forecast becomes stale and its hourly values are hidden; missing, invalid, future-dated or wrong-location context is unavailable. Status never fetches or refreshes weather: an eligible scheduled discharge notification can populate the cache. Weather location/eligibility still use the laptop wizard. Keep [Open-Meteo's terms](https://open-meteo.com/en/terms) and [data attribution](https://creativecommons.org/licenses/by/4.0/) in mind when adapting this personal installation to other uses. A Berlin-reference smoke request verified the client against the live weather API; actual Deye/Telegram/Cloudflare delivery, owner-location forecasts and production CPU remain unvalidated.
+
+## Rehearse setup without accounts
+
+Run `npm run setup:demo` after `npm ci` for an automatic, labelled synthetic walkthrough. It exercises the same setup and owner-pairing prompt flows used by the real CLI, plus daytime and weather preferences, using scripted answers and intercepted services. It reads only the public template, keeps settings in memory, and does not use environment credentials, edit owner files or contact providers. The example uses battery-only notifications, an illustrative Asia/Manila daytime window and synthetic city-level coordinates; it does not configure a Batangas forecast. It ends with fixed recovery examples and the live setup/deployment checks still pending. See [the walkthrough](docs/SETUP-WALKTHROUGH.md).
 
 ## Local setup
 
@@ -66,6 +113,8 @@ npm run preview
 
 Preview does not alter alert state or send notifications. Tokens for setup/preview are kept in process memory only; the deployed monitor caches them in KV. For manual secret configuration, see [.dev.vars.example](.dev.vars.example); the password hash is also a secret. Environment variables with the listed names override the local file for CLI commands.
 
+Rerunning setup with replacement Deye credentials preserves the existing Telegram owner/webhook binding when the bot and chat stay the same; obsolete Deye company/mobile fields are cleared. Changing the Telegram token or chat clears that binding and disables local commands until fresh owner pairing. Apply the updated settings/secrets and complete webhook registration explicitly; a local change does not alter a deployed Worker by itself. Setup failures show fixed recovery guidance for known credential, region, reading and weather errors without echoing upstream details.
+
 ## Customize notifications and charging profiles
 
 Setup now asks which updates you want: **battery full**, **battery supplying power**, both, or neither. The original thresholds remain configurable. Disabled categories still track battery cycles, so turning a category back on does not send a stale alert for a cycle that already happened. Disabling one also cancels its pending retry. Both categories default on for older installations.
@@ -78,11 +127,25 @@ npm run preferences
 
 Its Advanced section also edits SOC/discharge triggers, rearm thresholds and reading-freshness limits. This offline wizard edits only your ignored `wrangler.jsonc`; it does not read credentials, contact Deye/Telegram, or deploy. For an existing, configured installation, apply the saved settings with `npm run deploy`. For a fresh checkout, complete `npm run setup` and the deployment steps first.
 
+The summary reports Telegram commands as enabled or off **in local configuration**. It cannot verify pairing, uploaded secrets, deployed settings, webhook registration or actual receipt. When enabled, it points to pairing, manual upload/deployment/registration and a `/status` reply check in the owner chat. When off, pairing stays optional; battery notifications work without EV hints, weather or commands. Weather context is separate from future forecast charging plans and overnight exceptions, which are not implemented. Coordinates and installation identifiers are omitted.
+
 EV hints are optional. Users without an EV can skip the entire electrical/profile section. EV users can keep the original approximate-reduction hint, enter **up to 12 custom supported settings**, or choose an editable **8 A / 13 A / MAX** example. Every installation must confirm phases, line-to-neutral voltage, minimum current and actual selectable settings. MAX's nominal/rated power must be entered explicitly; no universal 7 kW rating or actual MAX amperage is assumed. If hints are turned off, previously confirmed profiles remain saved for later reuse.
 
 For a **confirmed 230 V single-phase example only**, 8 A is approximately 1.84 kW and 13 A approximately 2.99 kW. A user-entered 7,000 W MAX rating is shown as a nominal estimate with unspecified amperage. Three-phase calculations use three times the confirmed line-to-neutral voltage. These are neither measured EV power nor automatic charging detection.
 
-Profile changes and notification switches preserve battery alert cycles, including migration of the initial implementation's state identity. Changes to the station, units, thresholds or freshness interpretation still start new cycles. There is no Telegram settings menu or manual-session button yet; preferences are currently changed on the laptop and redeployed.
+The configured choices appear on separate reference lines in `/status` and applicable discharge advice. Battery discharge below a profile's nominal power does not establish “house only”: solar/grid may supply part of an EV's demand. Charging status remains unknown until manually reported, and reports expire after six hours.
+
+Profile changes and notification switches preserve battery alert cycles, including migration of the initial implementation's state identity. Changes to the station, units, thresholds or freshness interpretation still start new cycles. Optional Telegram settings apply on subsequent polls without redeployment; `/settings reset` restores the deployed preferences. See [command setup and limits](docs/TELEGRAM-BOT.md).
+
+## Optional bot commands
+
+After normal setup, send `/start` to your bot and run `npm run telegram:setup` on your laptop. It pairs one authorized owner and generates a webhook secret. Upload the new secrets, deploy, then run `npm run telegram:webhook` to register the owner's HTTPS endpoint and command menu. Full steps are in [Telegram bot setup](docs/TELEGRAM-BOT.md).
+
+Use `/status` for cached battery data, `/charging` to confirm you are charging, `/stopped` when you finish, and `/settings` for notification preferences. EV-enabled discharge alerts offer **Yes, I'm charging** and **No, I'm not** buttons. Reports are explicitly manual, expire to unknown after six hours, and never establish that an EV caused battery discharge. No EV/charger detection API is integrated yet.
+
+`/status` also explains cached update state: waiting for a reading, a recorded retry cooldown, an elapsed delay, or disabled monitoring. A future retry threshold uses the configured display timezone and means an attempt is allowed afterwards; it is not an appointment or delivery promise. The cache does not record the cooldown's cause, and an elapsed/absent delay does not prove a healthy live connection. Battery freshness, weather and charging reports stay separate. Status never fetches Deye/weather, clears a cooldown or forces a poll.
+
+With configured EV profiles, a charging confirmation also offers **I use 8 A**, **I use 13 A**, **I use MAX**, or the owner's own labels. These buttons report the setting being used; they never change equipment or grant an overnight exception. The menu expires after 30 minutes and selection keeps the report's original six-hour expiry. `/charging` renews a report and `/stopped` replaces it with “not charging”. Old menus are rejected after a stopped/new/expired report or profile-definition change. Each interaction shares the existing command budget. See [manual profile reports](docs/TELEGRAM-BOT.md#report-a-configured-charging-profile).
 
 ## Telegram setup
 
@@ -94,7 +157,7 @@ Profile changes and notification switches preserve battery alert cycles, includi
    npm run telegram:chats
    ```
 
-   This calls your bot's live `getUpdates` method without logging the token, request URL or message contents. A bot with an active webhook cannot use `getUpdates`; use your existing integration's known chat ID or a separate bot. Do not remove someone else's webhook just to run this monitor. The monitor itself does not use webhooks or read messages.
+   This calls your bot's live `getUpdates` method without logging the token, request URL or message contents. A bot with an active webhook cannot use `getUpdates`; use your existing integration's known chat ID or a separate bot. Do not remove someone else's webhook just to run this monitor. Notification-only mode does not read messages; optional bot commands use the authenticated webhook described above.
 
 4. `npm run setup` stores the token and selected numeric chat ID. Alternatively copy `.dev.vars.example` to `.dev.vars` and enter just the Telegram values to run a test:
 
@@ -106,7 +169,7 @@ Profile changes and notification switches preserve battery alert cycles, includi
 
 ## Deploy to your own Workers Free account
 
-Review your local `wrangler.jsonc` and the [Free-plan budget](docs/CLOUDFLARE-LIMITS.md). The generated config has one five-minute Cron Trigger and disables public `workers.dev`/preview URLs. Its HTTP handler always returns 404 and cannot trigger a poll.
+Review your local `wrangler.jsonc` and the [Free-plan budget](docs/CLOUDFLARE-LIMITS.md). The generated config has one five-minute Cron Trigger and disables public `workers.dev`/preview URLs by default. Enabling bot commands turns on the Worker's public address for authenticated `POST /telegram/webhook`; all other routes return 404. HTTP commands cannot trigger a Deye poll.
 
 ```sh
 npx wrangler login
@@ -140,9 +203,9 @@ Full behavior and failure tradeoffs are in [architecture notes](docs/ARCHITECTUR
 
 - Cloud telemetry is delayed. Logger uploads can be every one or five minutes, and station summaries can be cached for five minutes. Add the wait to the next Cron poll (up to five minutes), another distinct reading for discharge, and network/API delays. Detection commonly takes several minutes, sometimes longer. Brief full-charge/discharge events between readings may be missed. There is no guaranteed immediate detection.
 - KV stores alert latches, last reading time, confirmation count, a tiny retry outbox, and cached authentication. It is **eventually consistent**, not a global lock/transaction. Concurrent runs, region changes, crashes, or Telegram timeouts can duplicate or lose alerts. No exactly-once, at-least-once, or always-delivered guarantee is made.
-- Telegram retries are capped at three attempts per event, with persisted backoff and a 30-minute expiry. Delayed events require current fresh telemetry; messages are dropped if their triggering condition has cleared. Permanent failures are abandoned until the next rearmed cycle. A failed notification may therefore be missed; inspect logs and use the test command after fixing credentials.
+- Telegram retries are capped at three attempts per event, with persisted backoff and a 30-minute expiry. Delayed battery events require current fresh telemetry; messages are dropped if their triggering condition has cleared. Separately opted-in health notices use independent missing-data/recovery evidence and never contain battery-based charging advice. Permanent failures are abandoned until the next rearmed cycle. A failed notification may therefore be missed; inspect logs and use the test command after fixing credentials.
 - Deye calls time out at eight seconds and make at most two attempts per HTTP operation. Long `Retry-After` values are deferred across polls. Other failures use a persistent cooldown. There are no unlimited loops.
-- Five-minute cadence uses **288 runs/day**. Typical KV use is about **576 reads/day and 288 state writes/day**, plus rare token renewal/notification checkpoints; the designed upper bound is **864 writes/day** for one monitor. Current Free limits and caveats, including the **10 ms Cron CPU budget**, are [documented with sources](docs/CLOUDFLARE-LIMITS.md). This is an estimate, not a measurement of production billing/CPU.
+- Five-minute cadence uses **288 runs/day**. Notification-only KV use is about **576 reads/day and 288 state writes/day**, plus rare token renewal/notification checkpoints; the designed upper bound is **864 writes/day**. Optional bot commands add one read per Cron and at most 48 normal command-state writes/day, for a combined **912-write/day** design bound under the same no-overlap assumptions. See the [Free limits and CPU caveats](docs/CLOUDFLARE-LIMITS.md). These are estimates, not measurements of production billing/CPU.
 
 ## Troubleshooting
 

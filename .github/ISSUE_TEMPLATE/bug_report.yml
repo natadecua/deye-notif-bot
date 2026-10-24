@@ -1,0 +1,30 @@
+name: Bug report
+description: Report a setup, notification or bot-command problem.
+body:
+  - type: markdown
+    attributes:
+      value: Keep tokens, account/station/chat identifiers, message contents, raw API responses and request URLs out of this report. Use synthetic examples and fixed error codes.
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: Describe the setup step or user journey.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead?
+      description: Give reproducible steps without credentials or installation identifiers.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App revision and environment
+      description: Commit/version, Node version and whether this was local or deployed. Device model is optional; omit serial numbers.
+  - type: input
+    id: error
+    attributes:
+      label: Fixed error code, if any
+      placeholder: reading_stale

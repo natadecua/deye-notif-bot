@@ -2,6 +2,7 @@ import type { ChargingProfile, Config, EVConfig, NotificationPreferences } from 
 import { notificationPreferences, validateConfig } from '../src/config.ts';
 import { SafeError } from '../src/errors.ts';
 import { MAX_PROFILES, MAX_PROFILE_AMPS, profileSummary, validateChargingProfiles } from '../src/profiles.ts';
+import { daytimeSummary } from '../src/daytime.ts';
 
 export type InputValidator<T> = (value: T) => true | string;
 export interface PreferencePrompts {
@@ -87,15 +88,23 @@ export function preferencesSummary(c: Config): string {
   const n = notificationPreferences(c);
   const lines = [
     `Battery full: ${n.full ? `on at ${c.fullSoc}% SOC; re-arm below ${c.fullRearmSoc}%` : 'off'}`,
-    `Battery supplying power: ${n.discharge ? `on above ${c.dischargeWatts} W in two distinct fresh readings; re-arm below ${c.dischargeRearmWatts} W` : 'off'}`,
+    `Battery supplying power: ${n.discharge ? `on above ${c.dischargeWatts} W ${c.daytimeDischarge ? `during ${daytimeSummary(c)}` : 'in two distinct fresh readings'}; re-arm below ${c.dischargeRearmWatts} W` : 'off'}`,
     `Manual EV hints: ${c.ev.enabled ? n.discharge ? 'on; EV status/current remain unknown' :
       'saved, but discharge notifications are off' : 'off'}`,
   ];
   if (c.ev.enabled && c.ev.profiles?.length) {
     lines.push('Supported settings: ' + c.ev.profiles.map(profile => profileSummary(profile, c.ev)).join('; '));
   }
+  if (c.weather !== undefined) lines.push(`Weather context: ${c.weather.enabled ? 'on (Open-Meteo; no EV detection or charging plan)' : 'off'}`);
   if (!n.full && !n.discharge) lines.push('All battery notifications are off. Cycles will still be tracked while the monitor runs.');
-  lines.push('Advice only; no inverter or charger controls. Forecast planning and Telegram settings menus are not active.');
+  lines.push(c.telegram?.enabled
+    ? 'Telegram commands: enabled in local configuration (/help, /status, /settings). For first activation or a changed owner/bot, complete pairing with npm run telegram:setup.'
+    : 'Telegram commands: off in local configuration; optional owner pairing: npm run telegram:setup.');
+  lines.push('Battery notifications do not require EV hints, weather or Telegram commands.',
+    'Local configuration does not verify owner pairing, secret upload, deployment, webhook registration or message receipt.',
+    'Apply saved preferences manually: upload added/changed secrets with npm run secrets:upload, then npm run deploy.');
+  if (c.telegram?.enabled) lines.push('To activate commands after deployment, run npm run telegram:webhook, then confirm a /status reply in the owner chat.');
+  lines.push('Advice only; no inverter or charger controls. Forecast charging plans and overnight EV exceptions are not implemented.');
   return lines.join('\n');
 }
 
@@ -108,7 +117,7 @@ export async function configurePreferences(source: Config, p: PreferencePrompts)
       n => Number.isFinite(n) && n > 0 && n <= 100 || 'Enter a percentage above 0 and at most 100.');
     c.fullRearmSoc = await p.number('Re-arm the full alert strictly below SOC (%):', c.fullRearmSoc,
       n => Number.isFinite(n) && n >= 0 && n < c.fullSoc || 'The re-arm SOC must be below the full threshold.');
-    c.dischargeWatts = await p.number('Discharge must exceed this many watts in two distinct fresh readings:', c.dischargeWatts,
+    c.dischargeWatts = await p.number('Discharge must exceed this many watts for the configured confirmation rule:', c.dischargeWatts,
       n => Number.isFinite(n) && n > 0 || 'Enter a positive watt threshold.');
     c.dischargeRearmWatts = await p.number('Re-arm the discharge alert strictly below (W):', c.dischargeRearmWatts,
       n => Number.isFinite(n) && n >= 0 && n < c.dischargeWatts || 'The re-arm watts must be below the discharge threshold.');

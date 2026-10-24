@@ -14,6 +14,25 @@ export interface EVConfig {
   minimumAmps?: number;
   profiles?: ChargingProfile[];
 }
+export interface DaytimeDischarge {
+  timeZone: string;
+  startHour: number;
+  endHour: number;
+  minimumMinutes: number;
+}
+export interface WeatherConfig {
+  enabled: boolean;
+  latitude?: number;
+  longitude?: number;
+  nonCommercialConfirmed?: boolean;
+}
+// Default off; owner setup/status visibility and CI allowlisting are still gated.
+export interface DataHealthConfig {
+  enabled: boolean;
+  warnAfterMinutes?: number;
+  delivery?: 'all-hours' | 'daytime';
+  allHoursConfirmed?: boolean;
+}
 export interface Config {
   enabled: boolean;
   region: 'eu' | 'am' | 'india';
@@ -30,6 +49,10 @@ export interface Config {
   ev: EVConfig;
   // Omitted in older installations: both notification categories remain enabled.
   notifications?: NotificationPreferences;
+  telegram?: { enabled: boolean };
+  daytimeDischarge?: DaytimeDischarge;
+  weather?: WeatherConfig;
+  dataHealth?: DataHealthConfig;
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -41,6 +64,9 @@ export interface Secrets {
   DEYE_COUNTRY_CODE?: string;
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_CHAT_ID: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
+  TELEGRAM_OWNER_ID?: string;
+  TELEGRAM_BOT_USERNAME?: string;
 }
 export interface KVStore {
   get(key: string): Promise<string | null>;
@@ -51,22 +77,36 @@ export interface Env extends Secrets {
   MONITOR_CONFIG: unknown;
 }
 export interface Reading { at: number; soc: number; dischargeWatts: number }
-export interface Alert {
+interface PendingDelivery {
   id: string;
-  kind: 'full' | 'discharge';
-  reading: Reading;
   createdAt: number;
   attempts: number;
   nextAttemptAt: number;
 }
+export interface Alert extends PendingDelivery {
+  kind: 'full' | 'discharge';
+  reading: Reading;
+}
+export interface HealthAlert extends PendingDelivery {
+  kind: 'health';
+  notice: import('./data-health.ts').HealthCandidate;
+}
+export type PendingAlert = Alert | HealthAlert;
 export interface State {
   version: 1;
   identity: string;
   lastReadingAt?: number;
+  latestReading?: Reading;
   fullArmed: boolean;
   dischargeArmed: boolean;
   highCount: number;
-  pending: Alert[];
+  highStartedAt?: number;
+  dischargeDay?: string;
+  dischargePolicyIdentity?: string;
+  // Optional context is decoded independently so corrupt weather cannot stop alerts.
+  weather?: unknown;
+  dataHealth?: unknown;
+  pending: PendingAlert[];
   apiFailures: number;
   apiRetryAt: number;
 }
