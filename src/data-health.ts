@@ -2,7 +2,7 @@ import type { Config } from './types.ts';
 import { stateIdentity } from './config.ts';
 import { validateDataHealth } from './health-config.ts';
 
-// Pure preparation only. Monitor/transport/status do not invoke this module yet.
+// Pure lifecycle: monitor owns persistence/transport; status never advances it.
 const MINUTE = 60_000, TTL = 30 * MINUTE, REARM = 60 * MINUTE;
 export type HealthObservation = { kind: 'accepted'; at: number } |
   { kind: 'idle' | 'failed' | 'duplicate' | 'out_of_order' };
@@ -126,7 +126,7 @@ export function advanceDataHealth(c: Config, raw: unknown, observation: HealthOb
   return result(s);
 }
 
-// A pure acknowledgement boundary for later dispatch. No send/retry/KV operation.
+// Pure acknowledgement boundary. This helper performs no send/retry/KV operation.
 export function settleDataHealthNotice(c: Config, raw: unknown, candidate: HealthCandidate | undefined,
   outcome: 'accepted' | 'abandoned', now: number): HealthResult {
   const current = advanceDataHealth(c, raw, { kind: 'idle' }, now);

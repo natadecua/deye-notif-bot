@@ -26,7 +26,7 @@ export interface WeatherConfig {
   longitude?: number;
   nonCommercialConfirmed?: boolean;
 }
-// Preparation only: scheduled health delivery is not connected yet.
+// Default off; owner setup/status visibility and CI allowlisting are still gated.
 export interface DataHealthConfig {
   enabled: boolean;
   warnAfterMinutes?: number;
@@ -77,14 +77,21 @@ export interface Env extends Secrets {
   MONITOR_CONFIG: unknown;
 }
 export interface Reading { at: number; soc: number; dischargeWatts: number }
-export interface Alert {
+interface PendingDelivery {
   id: string;
-  kind: 'full' | 'discharge';
-  reading: Reading;
   createdAt: number;
   attempts: number;
   nextAttemptAt: number;
 }
+export interface Alert extends PendingDelivery {
+  kind: 'full' | 'discharge';
+  reading: Reading;
+}
+export interface HealthAlert extends PendingDelivery {
+  kind: 'health';
+  notice: import('./data-health.ts').HealthCandidate;
+}
+export type PendingAlert = Alert | HealthAlert;
 export interface State {
   version: 1;
   identity: string;
@@ -98,7 +105,8 @@ export interface State {
   dischargePolicyIdentity?: string;
   // Optional context is decoded independently so corrupt weather cannot stop alerts.
   weather?: unknown;
-  pending: Alert[];
+  dataHealth?: unknown;
+  pending: PendingAlert[];
   apiFailures: number;
   apiRetryAt: number;
 }

@@ -197,7 +197,7 @@ test('stale outcomes cannot acknowledge another episode or changed policy and ab
   assert.equal(abandoned.state.staleAcknowledged, false);
 });
 
-test('legacy full/discharge records and monitor IO remain unchanged even with a prepared health opt-in', async () => {
+test('legacy full/discharge records and health-off monitor IO remain unchanged', async () => {
   const c = enabled(), s = initialState(c);
   transition(s, { at: start, soc: 100, dischargeWatts: 400 }, c, start);
   transition(s, { at: start + 5 * minute, soc: 100, dischargeWatts: 400 }, c, start + 5 * minute);
@@ -205,7 +205,7 @@ test('legacy full/discharge records and monitor IO remain unchanged even with a 
   assert.equal(JSON.stringify(decoded), raw);
   step(c, undefined, start + 6 * minute);
   assert.equal(JSON.stringify(decoded), raw);
-  const h = harness(c); h.reading(80, 0);
+  const h = harness({ ...c, dataHealth: { enabled: false } }); h.reading(80, 0);
   await runMonitor(h.env, h.deps);
   assert.equal(h.sent.length, 0);
   assert.equal(h.kv.puts.filter(p => p.key === 'monitor:v1').length, 1);

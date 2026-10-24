@@ -6,6 +6,42 @@ import { Miniflare, convertV4MiniflareOptions, Response as LocalResponse, type R
 import { config, fixture, syntheticSecrets, tokenFixture } from '../helpers.ts';
 import { initialState } from '../../src/alerts.ts';
 import { daytimePeriod } from '../../src/daytime.ts';
+import { advanceDataHealth } from '../../src/data-health.ts';
+
+test('workerd sends a health-only cooldown notice without releasing stale battery advice or polling providers', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const c = config({ dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true } });
+  const messages: { text: string; reply_markup?: unknown }[] = [];
+  const runtime = new Miniflare(convertV4MiniflareOptions({ modules: true, script: bundled.outputFiles[0].text,
+    cf: false, compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: c },
+    outboundService: async (request: LocalRequest) => {
+      assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+      assert(new URL(request.url).pathname.endsWith('/sendMessage'));
+      messages.push(await request.json() as { text: string });
+      return new LocalResponse(JSON.stringify({ ok: true }));
+    },
+  }));
+  try {
+    // Synthetic missing-update episode and queued battery event; no actual account/service.
+    const kv = await runtime.getKVNamespace('STATE'), now = Date.now(), s = initialState(c);
+    const health = advanceDataHealth(c, undefined, { kind: 'idle' }, now - 31 * 60_000);
+    assert.equal(health.status, 'ok');
+    s.fullArmed = false; s.apiRetryAt = now + 3600_000;
+    const battery = { kind: 'full', id: 'full:synthetic-runtime', createdAt: now, attempts: 1, nextAttemptAt: now,
+      reading: { at: now - 35 * 60_000, soc: 100, dischargeWatts: 400 } };
+    await kv.put('monitor:v1', JSON.stringify({ ...s, dataHealth: health.state, pending: [battery] }));
+    await new Promise(resolve => setTimeout(resolve, 1200));
+    await (await runtime.getWorker()).scheduled({ cron: '*/5 * * * *', scheduledTime: new Date() });
+    assert.equal(messages.length, 1); assert.match(messages[0].text, /Battery updates delayed/);
+    assert.equal(messages[0].reply_markup, undefined);
+    assert.doesNotMatch(messages[0].text, /Charge:|Battery discharge:|synthetic-runtime|https?:\/\//);
+    const record = await kv.get('monitor:v1', 'json') as { dataHealth: { staleAcknowledged: boolean }; pending: unknown[]; apiRetryAt: number };
+    assert.equal(record.dataHealth.staleAcknowledged, true);
+    assert.deepEqual(record.pending, [battery]); assert.equal(record.apiRetryAt, s.apiRetryAt);
+  } finally { await runtime.dispose(); }
+});
 
 test('real workerd scheduled handler with local KV and entirely synthetic outbound services', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],

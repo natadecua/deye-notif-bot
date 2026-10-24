@@ -1,10 +1,11 @@
-import type { Alert, Config, Reading, State } from './types.ts';
+import type { Alert, Config, PendingAlert, Reading, State } from './types.ts';
 import { notificationEnabled, stateIdentity } from './config.ts';
 import { SafeError } from './errors.ts';
 import { chargingProfileReference } from './profiles.ts';
 import { activeChargingSession, chargingSummary, type BotState } from './bot-state.ts';
 import { daytimeIdentity, daytimePeriod, daytimeSummary, dischargeWindowOpen } from './daytime.ts';
 import { displayTime } from './display-time.ts';
+import { makeBatteryRoom, validHealthAlert } from './health-outbox.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
 export function initialState(c: Config): State {
@@ -45,7 +46,8 @@ export function decodeState(value: string | null, c: Config): State {
       (s.latestReading !== undefined && (!s.latestReading || !finite(s.latestReading.at) ||
         !finite(s.latestReading.soc) || s.latestReading.soc > 100 || !finite(s.latestReading.dischargeWatts) ||
         s.latestReading.at !== s.lastReadingAt)) ||
-      !Array.isArray(s.pending) || s.pending.length > 2 || s.pending.some(a =>
+      !Array.isArray(s.pending) || s.pending.length > 2 || s.pending.filter(a => a?.kind === 'health').length > 1 || s.pending.some(a =>
+        a?.kind === 'health' ? !validHealthAlert(a) :
         !a || !['full', 'discharge'].includes(a.kind) || typeof a.id !== 'string' ||
         !a.reading || !finite(a.reading.at) || !finite(a.reading.soc) || a.reading.soc > 100 ||
         !finite(a.reading.dischargeWatts) || !finite(a.createdAt) || !finite(a.nextAttemptAt) ||
@@ -67,7 +69,8 @@ export function decodeState(value: string | null, c: Config): State {
   return initialState(c);
 }
 export function expirePending(s: State, now: number): void {
-  s.pending = s.pending.filter(a => now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3);
+  // Health expiry/exhaustion is settled by syncHealth so it cannot mint a new retry.
+  s.pending = s.pending.filter(a => a.kind === 'health' || (now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3));
 }
 export function resetAfterGap(s: State, c: Config, now: number): void {
   if (s.lastReadingAt === undefined || now - s.lastReadingAt > c.maxGapSeconds * 1000) resetDischargeConfirmation(s);
@@ -81,6 +84,7 @@ export function transition(s: State, r: Reading, c: Config, now: number): 'accep
   s.latestReading = { ...r };
   const enqueue = (kind: Alert['kind']) => {
     if (notificationEnabled(c, kind)) {
+      makeBatteryRoom(s, c, now);
       s.pending.push({ id: `${kind}:${r.at}`, kind, reading: r, createdAt: now, attempts: 0, nextAttemptAt: now });
     }
   };
@@ -129,7 +133,8 @@ export function batteryLoadSummary(c: Config): string {
   return 'Load breakdown: unknown. Battery output alone does not identify individual loads or total home consumption.' +
     (c.ev.enabled ? '\nHousehold / EV split: unknown.' : '');
 }
-export function alertText(a: Alert, c: Config, context?: { bot?: BotState; now: number }): string {
+export function alertText(a: PendingAlert, c: Config, context?: { bot?: BotState; now: number }): string {
+  if (a.kind === 'health') throw new SafeError('health_event_requires_context');
   const when = displayTime(a.reading.at, c, 'readable');
   const footer = `\n\nReading: ${when}\nDeye Cloud data may be delayed.`;
   if (a.kind === 'full') {
