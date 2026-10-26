@@ -9,6 +9,58 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, URL as NodeURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+test('synthetic health rehearsal chooses separate daytime/all-hours policies then finishes off without changing the public defaults', async () => {
+  const source = config({ enabled: false, measurementsConfirmed: false }), before = structuredClone(source);
+  const output: string[] = [];
+  const result = await runSetupWalkthrough(source, text => output.push(text));
+  assert.deepEqual(result.healthRehearsal?.daytime, { enabled: true, warnAfterMinutes: 30, delivery: 'daytime' });
+  assert.deepEqual(result.healthRehearsal?.allHours, {
+    enabled: true, warnAfterMinutes: 45, delivery: 'all-hours', allHoursConfirmed: true,
+  });
+  assert.equal(result.config.dataHealth, undefined);
+  assert.deepEqual(source, before);
+  assert.equal(result.config.daytimeDischarge?.minimumMinutes, 15);
+  assert.deepEqual(result.requests, { deye: 3, telegram: 4, weather: 0 });
+  const text = output.join('\n');
+  assert.match(text, /health:setup/);
+  assert.match(text, /health.*30.*45.*illustrative|illustrative.*30.*45/i);
+  assert.match(text, /I accept informational health notices including at night/);
+  assert.match(text, /does not authorize overnight EV charging/);
+  assert.match(text, /rehearsal.*finishes.*off/i);
+});
+
+test('health cancellation rehearses the real unsaved result and retains the last in-memory consent', async () => {
+  const output: string[] = [], source = config({ enabled: false, measurementsConfirmed: false });
+  const result = await runSetupWalkthrough(source, text => output.push(text));
+  assert.deepEqual(result.healthRehearsal?.cancelledChange, {
+    code: 'health_setup_not_confirmed', retained: {
+      enabled: true, warnAfterMinutes: 45, delivery: 'all-hours', allHoursConfirmed: true,
+    },
+  });
+  const text = output.join('\n');
+  assert.match(text, /health_setup_not_confirmed.*not saved/);
+  assert.match(text, /previous.*in-memory.*retained/i);
+  assert.match(text, /data_health_config_invalid.*wrangler\.jsonc/);
+});
+
+test('health rehearsal forbids live access and explains private manual CI handoff without publishing a synthetic snapshot', async () => {
+  const originalFetch = globalThis.fetch, output: string[] = [];
+  globalThis.fetch = async () => { throw new Error('Live access forbidden in synthetic health rehearsal'); };
+  try {
+    const result = await runSetupWalkthrough(config({ enabled: false, measurementsConfirmed: false }), text => output.push(text));
+    assert.equal(result.liveValidated, false);
+    const text = output.join('\n');
+    assert.match(text, /WORKER_CONFIG_JSON/);
+    assert.match(text, /production environment/);
+    assert.match(text, /manual.*main-only/i);
+    assert.match(text, /do not copy.*synthetic.*snapshot/i);
+    assert.match(text, /CI.*handoff.*not performed/i);
+    assert.match(text, /receipt.*unverified/); assert.match(text, /CPU.*unverified/);
+    assert.doesNotMatch(text, /synthetic-password|synthetic-app-secret|synthetic-bearer|789|123:synthetic-token|secret_token/);
+    assert.deepEqual(result.requests, { deye: 3, telegram: 4, weather: 0 });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('the complete synthetic prompt journey rehearses setup, daytime, weather and owner pairing with no live access', async () => {
   const source = config({ enabled: false, measurementsConfirmed: false }), before = structuredClone(source), output: string[] = [];
   const originalFetch = globalThis.fetch;
@@ -56,9 +108,13 @@ test('the standalone demo runs outside the checkout without using environment cr
       fileURLToPath(new NodeURL('../node_modules/tsx/dist/cli.mjs', import.meta.url)),
       fileURLToPath(new NodeURL('../scripts/setup-demo.ts', import.meta.url)),
     ], { cwd: sandbox, encoding: 'utf8', timeout: 20_000,
-      env: { ...process.env, DEYE_APP_ID: sentinel, DEYE_APP_SECRET: sentinel, TELEGRAM_BOT_TOKEN: sentinel } });
+      env: { ...process.env, DEYE_APP_ID: sentinel, DEYE_APP_SECRET: sentinel, TELEGRAM_BOT_TOKEN: sentinel,
+        WORKER_CONFIG_JSON: sentinel, CLOUDFLARE_API_TOKEN: sentinel } });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /SYNTHETIC rehearsal complete/);
+    assert.match(result.stdout, /health:setup/);
+    assert.match(result.stdout, /health_setup_not_confirmed.*not saved/);
+    assert.match(result.stdout, /CI.*handoff.*not performed/i);
     assert.doesNotMatch(result.stdout + result.stderr, new RegExp(sentinel));
     for (const file of ['.dev.vars', 'wrangler.jsonc']) assert.equal(readFileSync(join(sandbox, file), 'utf8'), sentinel);
   } finally {

@@ -6,6 +6,7 @@ import { sendTelegram } from '../src/telegram.ts';
 import { runOwnerSetup, configureTelegramOwner, type SetupPrompts } from './owner-setup.ts';
 import { configureDaytime } from './daytime-preferences.ts';
 import { configureWeather } from './weather-preferences.ts';
+import { configureHealth } from './health-preferences.ts';
 import { webhookRegistration } from './telegram-onboarding.ts';
 import { setupHint } from './setup-hints.ts';
 
@@ -20,6 +21,10 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     '123', 'W', 'iso-offset', true, ['full', 'discharge'], false, false, '123:synthetic-token', '456', true,
     true, 'Asia/Manila', 6, 18, 15, true,
     true, true, 10, 20, true, '789',
+    true, 30, 'daytime', true,
+    true, 45, 'all-hours', true, true,
+    true, 60, 'daytime', false,
+    false, true,
   ];
   const next = async (message: string) => {
     if (!answers.length) throw new SafeError('synthetic_setup_answers_invalid');
@@ -87,14 +92,34 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     newSecret: () => 'synthetic-webhook-secret-1234567890',
   });
   webhookRegistration('https://monitor.synthetic.invalid/telegram/webhook', '', paired.secrets.TELEGRAM_WEBHOOK_SECRET!);
+  print('5. Rehearse npm run health:setup: health durations 30 and 45 minutes are illustrative, separate from the 15-minute discharge tolerance.');
+  const daytimeHealth = await configureHealth(paired.config, p);
+  const allHoursHealth = await configureHealth(daytimeHealth, p);
+  print('[SYNTHETIC cancellation] Decline saving a 60-minute daytime change; the previous in-memory choice must be retained.');
+  const beforeCancellation = JSON.stringify(allHoursHealth);
+  try {
+    await configureHealth(allHoursHealth, p);
+    throw new SafeError('synthetic_health_cancellation_expected');
+  } catch (error) {
+    if (!(error instanceof SafeError) || error.code !== 'health_setup_not_confirmed') throw error;
+    if (JSON.stringify(allHoursHealth) !== beforeCancellation) throw new SafeError('synthetic_health_cancellation_changed_settings');
+    print(`[SYNTHETIC result] health_setup_not_confirmed: ${setupHint('health_setup_not_confirmed')}`);
+    print('[SYNTHETIC result] Previous in-memory health preference retained; no settings returned to save.');
+  }
+  const cancelledChange = { code: 'health_setup_not_confirmed' as const, retained: structuredClone(allHoursHealth.dataHealth) };
+  const healthOff = await configureHealth(allHoursHealth, p);
   if (answers.length) throw new SafeError('synthetic_setup_answers_invalid');
-  print('5. Owner actions: Cloudflare account/KV setup, secret upload and deployment pending; webhook/menu registration pending.');
+  print('[SYNTHETIC result] Health rehearsal finishes off. The public default remains off and no personal health threshold was chosen.');
+  print('6. Owner actions: Cloudflare account/KV setup, secret upload and deployment pending; webhook/menu registration pending.');
+  print('Private CI handoff not performed: prepare your own WORKER_CONFIG_JSON in the production environment after real setup. Do not copy this synthetic configuration snapshot. Use the existing manual, main-only delivery workflow only after release checks; no snapshot, secret or deployment is uploaded by this rehearsal. See docs/CI-CD.md.');
   print('Live validation: Deye access unverified; Telegram receipt unverified; Cron cycles unverified; CPU/quotas unverified.');
   print('Nighttime battery use remains for the house. A forecast or charging report grants no overnight EV exception.');
   for (const code of ['deye_auth_rejected', 'no_stations_in_selected_region_or_company', 'measurement_missing_or_invalid',
-    'telegram_webhook_already_configured', 'telegram_owner_setup_required', 'weather_eligibility_not_confirmed']) {
+    'telegram_webhook_already_configured', 'telegram_owner_setup_required', 'weather_eligibility_not_confirmed',
+    'data_health_config_invalid']) {
     print(`Recovery example — ${code}: ${setupHint(code)}`);
   }
   print('SYNTHETIC rehearsal complete. No owner files read or saved, no live provider call, secret upload, registration or deployment.');
-  return { config: paired.config, requests, liveValidated: false as const };
+  return { config: healthOff, requests, liveValidated: false as const,
+    healthRehearsal: { daytime: daytimeHealth.dataHealth, allHours: allHoursHealth.dataHealth, cancelledChange } };
 }
