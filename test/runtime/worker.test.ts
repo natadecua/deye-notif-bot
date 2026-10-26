@@ -8,6 +8,49 @@ import { initialState } from '../../src/alerts.ts';
 import { daytimePeriod } from '../../src/daytime.ts';
 import { advanceDataHealth } from '../../src/data-health.ts';
 
+test('workerd brief status preserves stale/manual/cooldown evidence with only an authorized Telegram reply', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const secret = 'synthetic-webhook-secret-1234567890', messages: string[] = [];
+  const c = config({ telegram: { enabled: true }, daytimeDischarge: { timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15 } });
+  const runtime = new Miniflare(convertV4MiniflareOptions({ modules: true, script: bundled.outputFiles[0].text,
+    cf: false, compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: c, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789' },
+    outboundService: async (request: LocalRequest) => {
+      assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+      assert(new URL(request.url).pathname.endsWith('/sendMessage'));
+      const body = await request.json() as { text: string; reply_markup?: unknown };
+      assert.equal(body.reply_markup, undefined); messages.push(body.text);
+      return new LocalResponse(JSON.stringify({ ok: true }));
+    },
+  }));
+  try {
+    // Synthetic old cache and current manual report; no actual installation/services.
+    const kv = await runtime.getKVNamespace('STATE'), now = Date.now(), at = now - 700_000;
+    const before = JSON.stringify({ ...initialState(c), lastReadingAt: at, latestReading: { at, soc: 55, dischargeWatts: 315 },
+      apiRetryAt: now + 3600_000, dataHealth: { private: 'synthetic-sensitive-brief' } });
+    await kv.put('monitor:v1', before);
+    const session = { status: 'charging', source: 'manual', at: now - 1000, expiresAt: now - 1000 + 6 * 3600_000 };
+    await kv.put('telegram:v1', JSON.stringify({ version: 1, context: JSON.stringify([c.region, c.stationId]),
+      day: '', used: 0, lastUpdateId: -1, lastHandledAt: 0, session }));
+    const send = (owner: number) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': secret },
+      body: JSON.stringify({ update_id: 1, message: { message_id: 1, date: Math.floor(Date.now() / 1000),
+        from: { id: owner }, chat: { id: 456 }, text: '/status brief' } }),
+    });
+    assert.equal((await send(999)).status, 403); assert.equal(messages.length, 0);
+    assert.equal((await send(789)).status, 200); assert.equal(messages.length, 1);
+    assert.match(messages[0], /Battery status · brief/); assert.match(messages[0], /Charge: 55%/);
+    assert.match(messages[0], /stale — not current/); assert.match(messages[0], /Updates: cooldown/);
+    assert.match(messages[0], /Asia\/Manila \(UTC\+08:00\)/);
+    assert.match(messages[0], /you confirmed charging/); assert.match(messages[0], /Source: manual confirmation/);
+    assert.match(messages[0], /Load breakdown: unknown/); assert(messages[0].length <= 1000);
+    assert.doesNotMatch(messages[0], /synthetic-sensitive|reduce|grid outage|recovered/);
+    assert.equal(await kv.get('monitor:v1'), before);
+    assert.deepEqual((await kv.get('telegram:v1', 'json') as { session: unknown }).session, session);
+  } finally { await runtime.dispose(); }
+});
+
 test('workerd owner status shows health consent without reading health metadata as readiness or polling providers', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });

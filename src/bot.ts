@@ -12,7 +12,7 @@ import { profileReports, PROFILE_REPORT_HELP } from './profile-reports.ts';
 import { displayTime } from './display-time.ts';
 import { healthPreferencesText } from './health-config.ts';
 
-const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
+const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
 function secretMatches(actual: string | null, expected: string | undefined): boolean {
@@ -38,32 +38,57 @@ async function payload(request: Request): Promise<Record<string, unknown>> {
   if (!result) throw new SafeError('bot_payload_invalid');
   return result;
 }
-function cachedUpdateStatus(state: State, c: Config, now: number): string {
-  let text = `📡 Cached update status\nScheduled monitoring is ${c.enabled ? 'enabled' : 'disabled'}.`;
+function cachedUpdateStatus(state: State, c: Config, now: number, brief = false): string {
+  let text = brief ? `Monitoring: ${c.enabled ? 'enabled' : 'disabled'}.` :
+    `📡 Cached update status\nScheduled monitoring is ${c.enabled ? 'enabled' : 'disabled'}.`;
   if (c.enabled) {
     if (now < state.apiRetryAt) {
-      let retry = 'Retry time is unavailable in this cache.';
+      let retry = brief ? 'Retry time unavailable.' : 'Retry time is unavailable in this cache.';
       if (state.apiRetryAt <= 8.64e15) {
         try { retry = `Next attempt allowed after: ${displayTime(state.apiRetryAt, c)}.`; }
         catch { /* Optional display cannot hide battery data or echo an exception. */ }
       }
-      text += `\nData updates: retry cooldown.\n${retry}\nReason is not recorded in this cache. A scheduled poll may try again when the delay allows it.`;
+      text += brief ? `\nUpdates: cooldown. ${retry} Cause unknown.` :
+        `\nData updates: retry cooldown.\n${retry}\nReason is not recorded in this cache. A scheduled poll may try again when the delay allows it.`;
     } else if (state.apiRetryAt > 0) {
-      text += '\nData updates: Retry delay has elapsed; a scheduled poll may try again.';
+      text += brief ? '\nUpdates: retry delay elapsed; a scheduled poll may try again.' :
+        '\nData updates: Retry delay has elapsed; a scheduled poll may try again.';
+    } else if (state.latestReading) {
+      text += brief ? '\nUpdates: no retry delay recorded.' : '\nData updates: No retry delay is recorded.';
     } else {
-      text += state.latestReading ? '\nData updates: No retry delay is recorded.' : '\nData updates: Waiting for a cached reading.';
+      text += brief ? '\nUpdates: waiting for a cached reading.' : '\nData updates: Waiting for a cached reading.';
     }
   }
-  return text + '\nThis is cached status, not a live connection check; /status does not poll Deye.';
+  return brief ? text : text + '\nThis is cached status, not a live connection check; /status does not poll Deye.';
 }
-async function status(env: Env, c: Config, now: number): Promise<string> {
+function briefStatus(state: State, c: Config, now: number): string {
+  const r = state.latestReading;
+  const lines = ['🔋 Battery status · brief'];
+  if (r) {
+    const age = now - r.at;
+    const quality = age < 0 ? 'future-dated — not current' : age > c.maxAgeSeconds * 1000 ?
+      'stale — not current' : 'within freshness limit';
+    let reading = 'time unavailable';
+    try { reading = displayTime(r.at, c); } catch { /* Optional display must not reflect an exception. */ }
+    lines.push(`Charge: ${r.soc}% · Battery discharge: ${Math.round(r.dischargeWatts)} W`,
+      `Reading: ${reading}`, `Data age: ${Math.floor(age / 1000)} s (${quality})`);
+  } else lines.push('No cached reading yet.');
+  lines.push('Load breakdown: unknown.', cachedUpdateStatus(state, c, now, true));
+  lines.push(c.dataHealth?.enabled ? c.enabled ? 'Health notices: on (configured); /settings for policy.' :
+    'Health notices: paused (configured on); /settings for policy.' : 'Health notices: off.');
+  if (c.weather?.enabled) lines.push('Weather: /status for cached forecast.');
+  lines.push('Cached only; cloud data may be delayed. /status for details.');
+  return lines.join('\n');
+}
+async function status(env: Env, c: Config, now: number, brief = false): Promise<string> {
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
+  if (brief) return briefStatus(state, c, now);
   const r = state.latestReading;
   const weather = weatherStatusText(state.weather, c, now);
   const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}` + (weather ? `\n\n${weather}` : '');
   if (!r) return '🔋 Battery status\n\nNo cached reading yet.' + context;
-  const age = Math.floor((now - r.at) / 1000);
-  const quality = age < 0 || age > c.maxAgeSeconds ? 'stale — do not treat this as current' : 'within the configured freshness limit';
+  const ageMs = now - r.at, age = Math.floor(ageMs / 1000);
+  const quality = ageMs < 0 || ageMs > c.maxAgeSeconds * 1000 ? 'stale — do not treat this as current' : 'within the configured freshness limit';
   const profiles = chargingProfileReference(c.ev);
   return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${Math.round(r.dischargeWatts)} W\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\nDeye Cloud data may be delayed.` + context;
 }
@@ -133,8 +158,8 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
         reply = chargingSummary(state, c, now) + '\nUse /stopped when you finish. Equipment changes remain manual.';
         offerProfiles = charging;
       }
-    } else if (command === '/status') {
-      reply = await status(env, c, now) + `\n\n${chargingSummary(state, c, now)}`;
+    } else if (command === '/status' || command === '/status brief') {
+      reply = await status(env, c, now, command === '/status brief') + `\n\n${chargingSummary(state, c, now)}`;
     } else if (command === '/help' || command === '/start') {
       reply = help;
     } else if (command === '/settings reset') {

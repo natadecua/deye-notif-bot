@@ -8,6 +8,7 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 | --- | --- |
 | `/start`, `/help` | Explain available commands, manual reports and limits. |
 | `/status` | Show cached SOC/discharge, source time/age, update/cooldown state, health-notice preferences, the separate charging report and optional cached weather. No Deye or weather request. |
+| `/status brief` | Compact cached measurement, freshness/update state and separate manual charging evidence. Uses the same authorization and IO budget. |
 | `/charging` | Report “I am charging” for six hours. This records user confirmation. |
 | `/charging PROFILE_ID` | Also report one of the owner's configured profile IDs. This is not a measurement of EV power/current. |
 | `/stopped` | Report “I am not charging” for six hours. It does not send a stop command to equipment. |
@@ -25,6 +26,14 @@ Example journey with synthetic values: the bot reports the house battery supplyi
 After expiry, charging status becomes **unknown**, never an invented “stopped” state. This version has no measured EV telemetry adapter. Future direct detection must identify an actual supported vehicle/charger source; aggregate house or battery readings are not EV detection.
 
 Health notices are separately opt-in through offline `npm run health:setup` and manual deployment. Existing `/status` and `/settings` show off/on, independently chosen duration, the delivery window and paused monitoring. Muting `/full` and `/discharge` does not mute health. Configuration is not verified operation or receipt; cached status never evaluates/advances health, reflects raw metadata or adds a provider/KV operation. No new chat mutation enables health; `/settings reset` changes only existing battery overrides. Health needs neither EV hints nor bot commands. Nighttime notice consent never authorizes overnight EV charging. See [health setup and release gates](DATA-HEALTH-ALERTS.md).
+
+### A brief cached view
+
+`/status brief` keeps battery charge/discharge, source time, freshness, unknown load breakdown, enabled/disabled monitoring, recorded cooldown/elapsed eligibility and current manual EV evidence together. `/status` retains the detailed view; `/help` lists both. Brief status labels health as configured on/off or paused, links to `/settings` for policy and to `/status` for cached forecasts/profile references. It never advances health or decodes optional weather metadata. The supported argument is exactly `brief`; other arguments keep the existing unsupported-command response.
+
+Both views assess freshness against the exact source age before rounding displayed seconds. A reading even one millisecond beyond the limit is stale. Brief status labels future source instants separately and never describes expired/future manual reports as current. A valid manual report can coexist with stale battery data, with its own source/expiry. Unrenderable retry dates get fixed text without hiding battery data or echoing raw metadata. No output assigns an EV's share of battery discharge or grants overnight charging.
+
+The brief reply is bounded by existing validated fields and tested within 1,000 UTF-16 code units with all configured profiles, a long timezone, extreme finite telemetry and optional features. It prints one reported profile rather than the full reference list; the detailed view remains available. It shares the existing two reads (bot and monitor), one bot replay/budget write and one Telegram reply. It does not refresh a provider, write monitor state, renew a session, add buttons/history or change the UTC command budget. Cached status and configuration never verify live connectivity or owner receipt.
 
 ### Report a configured charging profile
 
