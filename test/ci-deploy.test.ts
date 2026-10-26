@@ -18,6 +18,26 @@ function environment() {
     CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(settings()) };
 }
 
+test('CI accepts explicitly consented health notices and rejects nested extras or invalid consent', () => {
+  const s = settings();
+  s.vars.MONITOR_CONFIG.dataHealth = { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true };
+  const prepare = () => prepareDeployment({ ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) });
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.dataHealth, s.vars.MONITOR_CONFIG.dataHealth);
+  for (const key of ['token', 'stationId', 'url']) {
+    s.vars.MONITOR_CONFIG.dataHealth[key] = 'synthetic-private-value';
+    assert.throws(prepare, /ci_config_unsupported_field/);
+    delete s.vars.MONITOR_CONFIG.dataHealth[key];
+  }
+  s.vars.MONITOR_CONFIG.dataHealth.allHoursConfirmed = false;
+  assert.throws(prepare, /data_health_config_invalid/);
+  s.vars.MONITOR_CONFIG.dataHealth = { enabled: true, warnAfterMinutes: 30, delivery: 'daytime' };
+  assert.throws(prepare, /data_health_config_invalid/);
+  s.vars.MONITOR_CONFIG.daytimeDischarge = { timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15 };
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.dataHealth, s.vars.MONITOR_CONFIG.dataHealth);
+  s.vars.MONITOR_CONFIG.dataHealth = { enabled: false };
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.dataHealth, { enabled: false });
+});
+
 test('CI deployment accepts confirmed weather preferences and refuses extra weather secrets', () => {
   const s = settings();
   s.vars.MONITOR_CONFIG.weather = { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true };

@@ -3,6 +3,7 @@ import { notificationPreferences, validateConfig } from '../src/config.ts';
 import { SafeError } from '../src/errors.ts';
 import { MAX_PROFILES, MAX_PROFILE_AMPS, profileSummary, validateChargingProfiles } from '../src/profiles.ts';
 import { daytimeSummary } from '../src/daytime.ts';
+import { healthPreferencesText } from '../src/health-config.ts';
 
 export type InputValidator<T> = (value: T) => true | string;
 export interface PreferencePrompts {
@@ -97,6 +98,7 @@ export function preferencesSummary(c: Config): string {
   }
   if (c.weather !== undefined) lines.push(`Weather context: ${c.weather.enabled ? 'on (Open-Meteo; no EV detection or charging plan)' : 'off'}`);
   if (!n.full && !n.discharge) lines.push('All battery notifications are off. Cycles will still be tracked while the monitor runs.');
+  lines.push(healthPreferencesText(c));
   lines.push(c.telegram?.enabled
     ? 'Telegram commands: enabled in local configuration (/help, /status, /settings). For first activation or a changed owner/bot, complete pairing with npm run telegram:setup.'
     : 'Telegram commands: off in local configuration; optional owner pairing: npm run telegram:setup.');

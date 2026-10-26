@@ -26,6 +26,39 @@ function setup() {
 }
 const botState = (h: ReturnType<typeof setup>) => JSON.parse(h.kv.data.get('telegram:v1')!);
 
+test('authorized cached status/settings expose independent health preferences without advancing health or polling', async () => {
+  for (const command of ['/status', '/settings']) {
+    const h = setup();
+    h.env.MONITOR_CONFIG = config({ telegram: { enabled: true }, notifications: { full: false, discharge: false },
+      dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true } });
+    const state = { ...initialState(validateConfig(h.env.MONITOR_CONFIG)), dataHealth: { syntheticPrivate: 'synthetic-sensitive-state' },
+      apiRetryAt: h.clock.time + 60_000 };
+    const before = JSON.stringify(state); h.kv.data.set('monitor:v1', before);
+    const reads: string[] = [], get = h.kv.get.bind(h.kv);
+    h.kv.get = async key => { reads.push(key); return get(key); };
+    assert.equal((await h.send(h.message(command))).status, 200);
+    assert.match(h.sent[0], /Health notices: on.*30 minutes/);
+    assert.match(h.sent[0], /including at night/);
+    assert.match(h.sent[0], /independent of battery notification switches/i);
+    assert.match(h.sent[0], /does not verify.*receipt/i);
+    assert.doesNotMatch(h.sent[0], /synthetic-sensitive-state|staleAcknowledged|stationId/);
+    assert.equal(h.kv.data.get('monitor:v1'), before);
+    assert.deepEqual(reads, command === '/status' ? ['telegram:v1', 'monitor:v1'] : ['telegram:v1']);
+    assert.deepEqual(h.kv.puts.map(p => p.key), ['telegram:v1']);
+    assert.equal(h.calls.length, 1); assert(h.calls[0].url.endsWith('/sendMessage'));
+  }
+});
+test('cached health visibility reports off and paused configuration without live-readiness claims', async () => {
+  for (const enabled of [true, false]) {
+    const h = setup();
+    if (!enabled) h.env.MONITOR_CONFIG = config({ enabled: false, telegram: { enabled: true },
+      dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true } });
+    await h.send(h.message('/status'));
+    assert.match(h.sent[0], enabled ? /Health notices: off/ : /paused.*monitoring is disabled/);
+    assert.equal(h.kv.data.has('monitor:v1'), false);
+  }
+});
+
 test('commands are opt-in and all unrelated HTTP routes remain unavailable', async () => {
   const h = setup();
   assert.equal((await handleTelegramRequest(h.request(h.message('/status')), { ...h.env, MONITOR_CONFIG: config() }, h.deps)).status, 404);

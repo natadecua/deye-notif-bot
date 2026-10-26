@@ -23,7 +23,10 @@ export function setupHint(code: string): string | undefined {
       return 'Rerun npm run weather:setup with a valid approximate latitude and longitude; city-level coordinates are sufficient. No API key is required.';
     case 'weather_setup_not_confirmed':
     case 'daytime_setup_not_confirmed':
+    case 'health_setup_not_confirmed':
       return 'This preference change was not saved. Rerun its setup command when ready; deployment remains a separate manual step.';
+    case 'data_health_config_invalid':
+      return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.dataHealth, then rerun npm run health:setup. Duration must be 15–120 whole minutes and longer than freshness; daytime requires an existing window and all-hours requires nighttime consent. Apply changes manually; keep monitoring enabled for health-only cleanup before rollback.';
     default:
       return telegramSetupHint(code);
   }

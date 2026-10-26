@@ -26,7 +26,7 @@ export interface WeatherConfig {
   longitude?: number;
   nonCommercialConfirmed?: boolean;
 }
-// Default off; owner setup/status visibility and CI allowlisting are still gated.
+// Default off; independent explicit duration and delivery consent through local setup.
 export interface DataHealthConfig {
   enabled: boolean;
   warnAfterMinutes?: number;

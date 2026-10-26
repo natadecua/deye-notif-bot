@@ -8,6 +8,42 @@ import { initialState } from '../../src/alerts.ts';
 import { daytimePeriod } from '../../src/daytime.ts';
 import { advanceDataHealth } from '../../src/data-health.ts';
 
+test('workerd owner status shows health consent without reading health metadata as readiness or polling providers', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const secret = 'synthetic-webhook-secret-1234567890', messages: string[] = [];
+  const c = config({ telegram: { enabled: true }, notifications: { full: false, discharge: false },
+    dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'daytime' },
+    daytimeDischarge: { timeZone: 'Asia/Manila', startHour: 6, endHour: 18, minimumMinutes: 15 } });
+  const runtime = new Miniflare(convertV4MiniflareOptions({ modules: true, script: bundled.outputFiles[0].text,
+    cf: false, compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: c, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789' },
+    outboundService: async (request: LocalRequest) => {
+      assert.equal(new URL(request.url).hostname, 'api.telegram.org');
+      assert(new URL(request.url).pathname.endsWith('/sendMessage'));
+      messages.push((await request.json() as { text: string }).text);
+      return new LocalResponse(JSON.stringify({ ok: true }));
+    },
+  }));
+  try {
+    const kv = await runtime.getKVNamespace('STATE');
+    const before = JSON.stringify({ ...initialState(c), dataHealth: { private: 'synthetic-sensitive-health' } });
+    await kv.put('monitor:v1', before);
+    const send = (owner: number) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': secret },
+      body: JSON.stringify({ update_id: 1, message: { message_id: 1, date: Math.floor(Date.now() / 1000),
+        from: { id: owner }, chat: { id: 456 }, text: '/status' } }),
+    });
+    assert.equal((await send(999)).status, 403); assert.equal(messages.length, 0);
+    assert.equal((await send(789)).status, 200); assert.equal(messages.length, 1);
+    assert.match(messages[0], /Health notices: on.*30 minutes/);
+    assert.match(messages[0], /06:00–18:00 Asia\/Manila/);
+    assert.match(messages[0], /does not verify.*receipt/);
+    assert.doesNotMatch(messages[0], /synthetic-sensitive-health|15 minutes of sampled discharge/);
+    assert.equal(await kv.get('monitor:v1'), before);
+  } finally { await runtime.dispose(); }
+});
+
 test('workerd sends a health-only cooldown notice without releasing stale battery advice or polling providers', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });

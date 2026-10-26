@@ -7,13 +7,13 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 | Command / button | Result |
 | --- | --- |
 | `/start`, `/help` | Explain available commands, manual reports and limits. |
-| `/status` | Show cached SOC/discharge, source time/age, update/cooldown state, the separate charging report and optional cached weather. No Deye or weather request. |
+| `/status` | Show cached SOC/discharge, source time/age, update/cooldown state, health-notice preferences, the separate charging report and optional cached weather. No Deye or weather request. |
 | `/charging` | Report “I am charging” for six hours. This records user confirmation. |
 | `/charging PROFILE_ID` | Also report one of the owner's configured profile IDs. This is not a measurement of EV power/current. |
 | `/stopped` | Report “I am not charging” for six hours. It does not send a stop command to equipment. |
 | Yes / No buttons | Confirm charging status from an EV-enabled discharge alert. Buttons expire 30 minutes after the source reading; old buttons cannot start a fresh session. |
 | I use PROFILE buttons | After a charging report, select one of the configured profiles as manual evidence. Keeps the original report expiry and never changes equipment. |
-| `/settings` | View battery notification switches and thresholds. |
+| `/settings` | View battery notification switches/thresholds and separate health-notice preferences. |
 | `/full on`, `/full off` | Change only the full notification preference. |
 | `/discharge on`, `/discharge off` | Change only the sustained-discharge preference. |
 | `/full_soc N` | Set the SOC trigger while preserving the strict re-arm invariant. |
@@ -23,6 +23,8 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 Example journey with synthetic values: the bot reports the house battery supplying 600 W and asks whether the owner is charging an EV. The owner presses **Yes, I'm charging**. The bot records **Source: manual confirmation**, displays its expiry and offers `/stopped`. A subsequent `/status` shows the cached battery measurement and that separate manual report. The bot still cannot establish which load caused battery discharge.
 
 After expiry, charging status becomes **unknown**, never an invented “stopped” state. This version has no measured EV telemetry adapter. Future direct detection must identify an actual supported vehicle/charger source; aggregate house or battery readings are not EV detection.
+
+Health notices are separately opt-in through offline `npm run health:setup` and manual deployment. Existing `/status` and `/settings` show off/on, independently chosen duration, the delivery window and paused monitoring. Muting `/full` and `/discharge` does not mute health. Configuration is not verified operation or receipt; cached status never evaluates/advances health, reflects raw metadata or adds a provider/KV operation. No new chat mutation enables health; `/settings reset` changes only existing battery overrides. Health needs neither EV hints nor bot commands. Nighttime notice consent never authorizes overnight EV charging. See [health setup and release gates](DATA-HEALTH-ALERTS.md).
 
 ### Report a configured charging profile
 

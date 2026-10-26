@@ -48,6 +48,8 @@ The pipeline does not create a KV namespace, rotate provider secrets, manipulate
 
 ## Validation and evidence
 
+Optional health preferences prepared by `npm run health:setup` can be included in the owner's private configuration snapshot. The adapter accepts only `dataHealth.enabled`, `warnAfterMinutes`, `delivery` and `allHoursConfirmed`, then validates the explicit duration/window/nighttime consent. Unknown nested fields are rejected rather than published. Omission remains off; no personal setting is enabled by CI validation. Update the private snapshot yourself and use the existing manual release workflow only after account setup, receipt and CPU gates are met. No new secret, provider call or automatic deployment trigger is introduced.
+
 See [validation record](VALIDATION.md) for locally tested commands, the observed failing acceptance tests and any hosted GitHub run results. Workflow syntax validation and local runtime tests do not establish that a real Cloudflare deployment has succeeded. Production deployment requires the owner-specific environment secrets above.
 
 ## Official references

@@ -10,6 +10,7 @@ import { chargingProfileReference } from './profiles.ts';
 import { weatherStatusText } from './weather.ts';
 import { profileReports, PROFILE_REPORT_HELP } from './profile-reports.ts';
 import { displayTime } from './display-time.ts';
+import { healthPreferencesText } from './health-config.ts';
 
 const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
@@ -59,7 +60,7 @@ async function status(env: Env, c: Config, now: number): Promise<string> {
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   const r = state.latestReading;
   const weather = weatherStatusText(state.weather, c, now);
-  const context = `\n\n${cachedUpdateStatus(state, c, now)}` + (weather ? `\n\n${weather}` : '');
+  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}` + (weather ? `\n\n${weather}` : '');
   if (!r) return '🔋 Battery status\n\nNo cached reading yet.' + context;
   const age = Math.floor((now - r.at) / 1000);
   const quality = age < 0 || age > c.maxAgeSeconds ? 'stale — do not treat this as current' : 'within the configured freshness limit';
