@@ -2,6 +2,8 @@
 
 Reviewed **2026-10-21**. Public schemas/samples were retrieved; **no authenticated installation was available**. “Verified” here means confirmed against those published artifacts, not a successful live request.
 
+Optional solar/home/grid context was reassessed on **2026-10-26** against all three current regional schemas, the official rendered station/device documentation and client samples. Field names/types still do not establish units, direction, metering scope, missing-value behavior or per-field freshness. The [field-level evidence and implementation gates](MEASURED-CONTEXT.md) keep this context unavailable rather than applying the confirmed battery-discharge scale to unrelated measurements. No optional measurement adapter or fixture claiming verified semantics was added.
+
 ## Sources and concrete findings
 
 - [REST documentation](https://developer.deyecloud.com/api). Its public SPA loads Swagger v2 schemas at `https://{regional-developer-host}/v2/api-docs`.
