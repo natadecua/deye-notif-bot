@@ -49,6 +49,8 @@ The subsequent default-off runtime integration persists optional health metadata
 
 The official Workers/KV limits pages below were rechecked for the documentation-only [daily cached recap contract](DAILY-RECAP.md). It proposes no extra Cron, provider refresh, key/read, history or checkpoint: one recap would compete below battery/health for the existing two total slots/Telegram attempts. The same 288 ticks, at most two monitor checkpoints plus one token write, 864/912 daily write calculation and optional-command read estimate apply only under the existing assumptions. Its fixed original delivery opportunity expires rather than replaying missing days. Enabled recap ticks during Deye cooldown could increase typical writes while sharing that ceiling and making no auth/weather request; whole-monitor off remains zero IO. Additional bounded local-time/rendering/decoding CPU would require Free-account measurement. No recap behavior, state/config field, owner schedule or runtime cost is added by this design-only change.
 
+The subsequent pure policy/slot-preparation foundation is deliberately outside the deployed Worker import graph. It adds no accepted deployment config/state field, queue kind, IO or bundle size; existing production CPU/request/KV paths are unchanged. Synthetic tests check fixed metadata size and constant formatter work, not production CPU. Future integration still must meet the proposed shared envelope and live-measurement gates above; no recap is enabled by publishing these helpers.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.
