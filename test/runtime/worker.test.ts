@@ -8,6 +8,55 @@ import { initialState } from '../../src/alerts.ts';
 import { daytimePeriod } from '../../src/daytime.ts';
 import { advanceDataHealth } from '../../src/data-health.ts';
 
+test('workerd help navigation opens cached status and rejects expired menus without changing reports', async () => {
+  const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });
+  const secret = 'synthetic-webhook-secret-1234567890';
+  const messages: { text: string; reply_markup?: { inline_keyboard: { text: string; callback_data: string }[][] } }[] = [];
+  const methods: string[] = [], c = config({ telegram: { enabled: true } });
+  const runtime = new Miniflare(convertV4MiniflareOptions({ modules: true, script: bundled.outputFiles[0].text,
+    cf: false, compatibilityDate: '2026-10-01', kvNamespaces: ['STATE'], log: new Log(LogLevel.NONE),
+    bindings: { ...syntheticSecrets, MONITOR_CONFIG: c, TELEGRAM_WEBHOOK_SECRET: secret, TELEGRAM_OWNER_ID: '789' },
+    outboundService: async (request: LocalRequest) => {
+      const url = new URL(request.url); assert.equal(url.hostname, 'api.telegram.org');
+      const method = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+      assert(['sendMessage', 'answerCallbackQuery'].includes(method)); methods.push(method);
+      if (method === 'sendMessage') messages.push(await request.json() as typeof messages[number]);
+      return new LocalResponse(JSON.stringify({ ok: true }));
+    },
+  }));
+  try {
+    // Entirely synthetic cache and current owner report; no actual account/services.
+    const kv = await runtime.getKVNamespace('STATE'), now = Date.now(), at = now - 700_000;
+    const monitor = JSON.stringify({ ...initialState(c), lastReadingAt: at, latestReading: { at, soc: 55, dischargeWatts: 315 } });
+    await kv.put('monitor:v1', monitor);
+    const session = { status: 'charging', source: 'manual', at: now - 1000, expiresAt: now - 1000 + 6 * 3600_000 };
+    await kv.put('telegram:v1', JSON.stringify({ version: 1, context: JSON.stringify([c.region, c.stationId]),
+      day: '', used: 0, lastUpdateId: -1, lastHandledAt: 0, session }));
+    const send = (body: unknown) => runtime.dispatchFetch('https://synthetic.invalid/telegram/webhook', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': secret }, body: JSON.stringify(body),
+    });
+    const callback = (data: string, id: number, owner = 789) => ({ update_id: id, callback_query: {
+      id: 'synthetic-nav-runtime', from: { id: owner }, data, message: { message_id: 1, chat: { id: 456 }, text: '/stopped' },
+    } });
+    assert.equal((await send(callback(`view:brief:${now}`, 1, 999))).status, 403); assert.equal(methods.length, 0);
+    await send({ update_id: 1, message: { message_id: 1, date: Math.floor(Date.now() / 1000),
+      from: { id: 789 }, chat: { id: 456 }, text: '/help' } });
+    const buttons = messages[0].reply_markup?.inline_keyboard.flat() ?? [];
+    assert.equal(buttons.length, 3); assert.match(messages[0].text, /Read-only buttons.*30 minutes/);
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    await send(callback(buttons[0].callback_data, 2));
+    assert.match(messages[1].text, /Battery status · brief/); assert.match(messages[1].text, /stale — not current/);
+    assert.match(messages[1].text, /you confirmed charging/); assert.equal(messages[1].reply_markup, undefined);
+    await new Promise(resolve => setTimeout(resolve, 2100));
+    await send(callback(`view:brief:${now - 30 * 60_000}`, 3));
+    assert.match(messages[2].text, /menu.*expired or invalid.*\/help/i);
+    assert.deepEqual(methods, ['sendMessage', 'answerCallbackQuery', 'sendMessage', 'answerCallbackQuery', 'sendMessage']);
+    assert.equal(await kv.get('monitor:v1'), monitor);
+    assert.deepEqual((await kv.get('telegram:v1', 'json') as { session: unknown }).session, session);
+  } finally { await runtime.dispose(); }
+});
+
 test('workerd brief status preserves stale/manual/cooldown evidence with only an authorized Telegram reply', async () => {
   const bundled = await build({ entryPoints: [fileURLToPath(new NodeURL('../../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false });

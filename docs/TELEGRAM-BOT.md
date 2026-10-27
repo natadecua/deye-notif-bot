@@ -6,9 +6,10 @@ Commands are optional and default off. Each installation uses its own Worker, bo
 
 | Command / button | Result |
 | --- | --- |
-| `/start`, `/help` | Explain available commands, manual reports and limits. |
+| `/start`, `/help` | Explain commands/reports/limits and offer three expiring read-only navigation buttons. |
 | `/status` | Show cached SOC/discharge, source time/age, update/cooldown state, health-notice preferences, the separate charging report and optional cached weather. No Deye or weather request. |
 | `/status brief` | Compact cached measurement, freshness/update state and separate manual charging evidence. Uses the same authorization and IO budget. |
+| Quick status / Detailed status / Settings buttons | Open the existing cached status/settings views. Expire 30 minutes after menu creation; never change preferences or renew a report. |
 | `/charging` | Report “I am charging” for six hours. This records user confirmation. |
 | `/charging PROFILE_ID` | Also report one of the owner's configured profile IDs. This is not a measurement of EV power/current. |
 | `/stopped` | Report “I am not charging” for six hours. It does not send a stop command to equipment. |
@@ -34,6 +35,14 @@ Health notices are separately opt-in through offline `npm run health:setup` and 
 Both views assess freshness against the exact source age before rounding displayed seconds. A reading even one millisecond beyond the limit is stale. Brief status labels future source instants separately and never describes expired/future manual reports as current. A valid manual report can coexist with stale battery data, with its own source/expiry. Unrenderable retry dates get fixed text without hiding battery data or echoing raw metadata. No output assigns an EV's share of battery discharge or grants overnight charging.
 
 The brief reply is bounded by existing validated fields and tested within 1,000 UTF-16 code units with all configured profiles, a long timezone, extreme finite telemetry and optional features. It prints one reported profile rather than the full reference list; the detailed view remains available. It shares the existing two reads (bot and monitor), one bot replay/budget write and one Telegram reply. It does not refresh a provider, write monitor state, renew a session, add buttons/history or change the UTC command budget. Cached status and configuration never verify live connectivity or owner receipt.
+
+### Read-only help navigation
+
+`/help` and `/start` include one button each for **Quick status**, **Detailed status** and **Settings**. They map only to `/status brief`, `/status` and `/settings`, sharing those handlers rather than parsing a command from button text or the old Telegram message. Status reflects the cache/report at tap time, so a previously fresh reading can now be stale and an expired manual report becomes unknown. Settings shows the effective deployed/in-chat preferences. Navigation replies do not attach profile buttons or modify a report, preference, battery cycle or monitor cache.
+
+The three fixed labels carry only a view name and creation timestamp, at most 30 ASCII bytes. Buttons are valid for less than 30 minutes; at the deadline, after it, or for a future/non-canonical/malformed timestamp, fixed guidance asks for `/help`. Unknown view names cannot invoke mutating commands and raw payloads are not echoed. Menus may remain visible after expiry. The timestamp is an age guard, not a credential or proof that a menu was issued; the existing webhook secret, sender and chat checks authorize all private access. An authorized owner can already request these views as commands. No persisted nonce, new key, hash or provider integration is needed for these read-only targets.
+
+Help uses one bot-state read, one existing replay/budget write and one Telegram reply. A navigation tap uses one bot-state read, plus the existing monitor read for either status view; settings/invalid menus do not read monitor state. It shares one replay/budget write, one bounded callback acknowledgement and one reply. An acknowledgement failure does not suppress the reply. A failed checkpoint prevents both calls. Duplicate/rate/day limits apply; the final daily-budget notice cannot navigate or offer another menu. These are per-invocation bounds, not exactly-once guarantees under KV lag/crashes. Real Telegram menu rendering/receipt and production CPU remain unvalidated.
 
 ### Report a configured charging profile
 

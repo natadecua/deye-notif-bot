@@ -11,6 +11,7 @@ import { weatherStatusText } from './weather.ts';
 import { profileReports, PROFILE_REPORT_HELP } from './profile-reports.ts';
 import { displayTime } from './display-time.ts';
 import { healthPreferencesText } from './health-config.ts';
+import { helpNavigation, navigationCommand, NAVIGATION_HELP, NAVIGATION_EXPIRED } from './help-navigation.ts';
 
 const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
@@ -135,13 +136,18 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (state.day !== day) { state.day = day; state.used = 0; }
     if (state.used >= 48) return ok();
     const c = validateConfig({ ...base, ...state.overrides });
-    let reply: string, offerProfiles = false;
+    let reply: string, offerProfiles = false, offerNavigation = false;
+    const isNavigation = !!callback && (callback.data as string).startsWith('view:');
+    const navigation = isNavigation ? navigationCommand(callback!.data as string, now) : undefined;
+    if (navigation) command = navigation;
     const reports = profileReports(c, state, now);
     const button = callback ? /^charging:(yes|no):(\d{1,16})$/.exec(callback.data as string) : null;
-    const selectedProfile = callback && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
+    const selectedProfile = callback && !isNavigation && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
     if (state.used === 47) {
       reply = 'Daily command limit reached. Try again after 00:00 UTC. Scheduled battery monitoring continues.';
-    } else if (callback && ((!button && !selectedProfile) || (button && (now < Number(button[2]) || now - Number(button[2]) > 30 * 60_000)))) {
+    } else if (isNavigation && !navigation) {
+      reply = NAVIGATION_EXPIRED;
+    } else if (callback && !navigation && ((!button && !selectedProfile) || (button && (now < Number(button[2]) || now - Number(button[2]) > 30 * 60_000)))) {
       reply = 'That confirmation has expired. Use /charging or /stopped to make a new manual report.';
     } else if (selectedProfile) {
       state.session!.profileId = selectedProfile;
@@ -162,6 +168,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
       reply = await status(env, c, now, command === '/status brief') + `\n\n${chargingSummary(state, c, now)}`;
     } else if (command === '/help' || command === '/start') {
       reply = help;
+      offerNavigation = true;
     } else if (command === '/settings reset') {
       delete state.overrides;
       reply = 'Deployment preferences restored. They apply on the next scheduled reading.';
@@ -170,8 +177,8 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
       if (result.changed) state.overrides = settingsOverrides(result.config);
       reply = result.reply;
     }
-    const replyMarkup = offerProfiles ? await reports.menu() : undefined;
-    if (replyMarkup) reply += `\n\n${PROFILE_REPORT_HELP}`;
+    const replyMarkup = offerProfiles ? await reports.menu() : offerNavigation ? helpNavigation(now) : undefined;
+    if (replyMarkup) reply += `\n\n${offerProfiles ? PROFILE_REPORT_HELP : NAVIGATION_HELP}`;
     state.lastUpdateId = update.update_id as number; state.lastHandledAt = now; state.used++;
     await env.STATE.put(BOT_KEY, JSON.stringify(state));
     persisted = true;
@@ -180,7 +187,8 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (callback) {
       try {
         await jsonPost(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
-          { callback_query_id: callback.id, text: 'Report processed. Check the bot reply.' }, {}, deps, 'telegram', 1);
+          { callback_query_id: callback.id, text: isNavigation ? 'Menu request processed. Check the bot reply.' :
+            'Report processed. Check the bot reply.' }, {}, deps, 'telegram', 1);
       } catch { /* Acknowledgement failure must not suppress the ordinary confirmation reply. */ }
     }
     await sendTelegram(env, reply, deps, replyMarkup);
