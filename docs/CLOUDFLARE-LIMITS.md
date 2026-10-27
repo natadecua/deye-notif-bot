@@ -51,6 +51,8 @@ The official Workers/KV limits pages below were rechecked for the documentation-
 
 The subsequent pure policy/slot-preparation foundation is deliberately outside the deployed Worker import graph. It adds no accepted deployment config/state field, queue kind, IO or bundle size; existing production CPU/request/KV paths are unchanged. Synthetic tests check fixed metadata size and constant formatter work, not production CPU. Future integration still must meet the proposed shared envelope and live-measurement gates above; no recap is enabled by publishing these helpers.
 
+Shared snapshot rendering now serves existing authorized brief status, reusing its two reads, one replay write and one reply. Extracted detailed update text preserves its existing path. Fixed recap presentation, conditional command links and an explicit display-only zone add bounded branches/text and reuse the single formatter; no provider request, state/config field, queue slot, KV operation or scheduled recap call is added. The pure workerd harness makes zero outbound requests and does not establish Cron delivery. Updated bundle measurements are in [validation notes](VALIDATION.md); cold/warm production CPU remains unmeasured. The schedule-preparation module stays outside the deployed graph.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.

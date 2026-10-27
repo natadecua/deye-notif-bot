@@ -6,7 +6,11 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 // Display only: timestamps, freshness, sessions and command-day boundaries remain
 // absolute. Reuse the explicit daytime timezone and its single bounded formatter.
 export function displayTime(at: number, c: Config, style: 'iso' | 'readable' = 'iso'): string {
-  const zone = c.daytimeDischarge?.timeZone, date = new Date(at);
+  return displayTimeInZone(at, c.daytimeDischarge?.timeZone, style);
+}
+// Explicit display context only; never creates/changes an installation window.
+export function displayTimeInZone(at: number, zone?: string, style: 'iso' | 'readable' = 'iso'): string {
+  const date = new Date(at);
   if (!zone || zone === 'UTC') {
     return style === 'readable' ?
       `${date.getUTCDate()} ${months[date.getUTCMonth()]} ${date.getUTCFullYear()}, ${date.toISOString().slice(11, 19)} UTC` :

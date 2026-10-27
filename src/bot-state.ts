@@ -38,9 +38,10 @@ export function decodeBotState(raw: string | null, c: Config): BotState {
 export function activeChargingSession(s: BotState | undefined, now: number): BotState['session'] {
   return s?.session && now >= s.session.at && now < s.session.expiresAt ? s.session : undefined;
 }
-export function chargingSummary(s: BotState | undefined, c: Config, now: number): string {
+export function chargingSummary(s: BotState | undefined, c: Config, now: number,
+  formatExpiry: (at: number) => string = at => displayTime(at, c)): string {
   const session = activeChargingSession(s, now);
   if (!session) return 'EV charging: unknown';
   const profile = c.ev.profiles?.find(p => p.id === session.profileId);
-  return `EV charging: you confirmed ${session.status === 'charging' ? 'charging' : 'not charging'}\nSource: manual confirmation; expires ${displayTime(session.expiresAt, c)}${profile ? `\nReported profile: ${profile.label}` : ''}`;
+  return `EV charging: you confirmed ${session.status === 'charging' ? 'charging' : 'not charging'}\nSource: manual confirmation; expires ${formatExpiry(session.expiresAt)}${profile ? `\nReported profile: ${profile.label}` : ''}`;
 }
