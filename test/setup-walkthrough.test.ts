@@ -9,6 +9,58 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, URL as NodeURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+// All policies, accounts, transports and temporary owner-file sentinels are synthetic.
+test('recap rehearsal explicitly chooses illustrative schedules through the real helper and finishes off', async () => {
+  const source = config({ enabled: false, measurementsConfirmed: false }), before = structuredClone(source), output: string[] = [];
+  const result = await runSetupWalkthrough(source, text => output.push(text));
+  assert('recapRehearsal' in result, 'Expected the recap setup journey');
+  const recap = result.recapRehearsal as { daytime: unknown; nighttime: unknown };
+  assert.deepEqual(recap.daytime, { enabled: true, timeZone: 'Asia/Manila', hour: 7, minute: 10, scheduleConfirmed: true });
+  assert.deepEqual(recap.nighttime, { enabled: true, timeZone: 'Asia/Manila', hour: 19, minute: 25, scheduleConfirmed: true });
+  assert.equal(result.config.dailyRecap, undefined); assert.equal(result.config.dataHealth, undefined);
+  assert.deepEqual(source, before); assert.deepEqual(result.requests, { deye: 3, telegram: 4, weather: 0 });
+  const text = output.join('\n');
+  assert.match(text, /recap:setup.*illustrative/i);
+  assert.match(text, /I accept a daily cached recap at 07:10 Asia\/Manila/);
+  assert.match(text, /I accept a daily cached recap at 19:25 Asia\/Manila.*including at night.*does not authorize overnight EV charging/);
+  assert.equal((text.match(/\[SYNTHETIC prompt\] Save these recap preferences locally/g) ?? []).length, 4);
+  assert.match(text, /skip the current local date/); assert.match(text, /15-minute opportunity/);
+  assert.match(text, /Recap rehearsal finishes off.*no personal.*schedule/i);
+});
+
+test('recap rehearsal cancels both schedule consent and final save, retaining the last in-memory policy', async () => {
+  const output: string[] = [];
+  const result = await runSetupWalkthrough(config({ enabled: false, measurementsConfirmed: false }), text => output.push(text));
+  assert('recapRehearsal' in result, 'Expected recap cancellation evidence');
+  const recap = result.recapRehearsal as { declinedSchedule: unknown; cancelledChange: unknown };
+  const retained = { enabled: true, timeZone: 'Asia/Manila', hour: 19, minute: 25, scheduleConfirmed: true };
+  assert.deepEqual(recap.declinedSchedule, { code: 'recap_setup_not_confirmed', retained });
+  assert.deepEqual(recap.cancelledChange, { code: 'recap_setup_not_confirmed', retained });
+  const text = output.join('\n');
+  assert.match(text, /decline.*schedule consent/i); assert.match(text, /decline saving.*recap/i);
+  assert.equal((text.match(/recap_setup_not_confirmed:.*not saved/g) ?? []).length, 2);
+  assert.equal((text.match(/Previous in-memory recap preference retained/g) ?? []).length, 2);
+});
+
+test('recap rehearsal exercises invalid saved consent before prompts and fixed recovery without live access', async () => {
+  const originalFetch = globalThis.fetch, output: string[] = [];
+  globalThis.fetch = async () => { throw new Error('Live access forbidden in synthetic recap rehearsal'); };
+  try {
+    const result = await runSetupWalkthrough(config({ enabled: false, measurementsConfirmed: false }), text => output.push(text));
+    assert('recapRehearsal' in result, 'Expected invalid recap setting rehearsal');
+    const recap = result.recapRehearsal as { invalidSaved: unknown };
+    assert.deepEqual(recap.invalidSaved, { code: 'daily_recap_config_invalid', prompted: false });
+    const text = output.join('\n');
+    assert.match(text, /daily_recap_config_invalid:.*wrangler\.jsonc.*dailyRecap/);
+    assert.match(text, /Invalid saved recap consent rejected before prompts/);
+    assert.match(text, /WORKER_CONFIG_JSON/); assert.match(text, /manual.*main-only/);
+    assert.match(text, /do not copy.*synthetic.*snapshot/i);
+    assert.match(text, /receipt.*unverified/); assert.match(text, /CPU.*unverified/);
+    assert.doesNotMatch(text, /synthetic-password|synthetic-app-secret|synthetic-bearer|789|123:synthetic-token|secret_token|"stationId"/);
+    assert.deepEqual(result.requests, { deye: 3, telegram: 4, weather: 0 }); assert.equal(result.liveValidated, false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('synthetic health rehearsal chooses separate daytime/all-hours policies then finishes off without changing the public defaults', async () => {
   const source = config({ enabled: false, measurementsConfirmed: false }), before = structuredClone(source);
   const output: string[] = [];
@@ -114,6 +166,10 @@ test('the standalone demo runs outside the checkout without using environment cr
     assert.match(result.stdout, /SYNTHETIC rehearsal complete/);
     assert.match(result.stdout, /health:setup/);
     assert.match(result.stdout, /health_setup_not_confirmed.*not saved/);
+    assert.match(result.stdout, /recap:setup/);
+    assert.match(result.stdout, /recap_setup_not_confirmed.*not saved/);
+    assert.match(result.stdout, /Recap rehearsal finishes off/);
+    assert.match(result.stdout, /Invalid saved recap consent rejected before prompts/);
     assert.match(result.stdout, /CI.*handoff.*not performed/i);
     assert.doesNotMatch(result.stdout + result.stderr, new RegExp(sentinel));
     for (const file of ['.dev.vars', 'wrangler.jsonc']) assert.equal(readFileSync(join(sandbox, file), 'utf8'), sentinel);

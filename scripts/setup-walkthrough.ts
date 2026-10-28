@@ -7,6 +7,7 @@ import { runOwnerSetup, configureTelegramOwner, type SetupPrompts } from './owne
 import { configureDaytime } from './daytime-preferences.ts';
 import { configureWeather } from './weather-preferences.ts';
 import { configureHealth } from './health-preferences.ts';
+import { configureRecap } from './recap-preferences.ts';
 import { webhookRegistration } from './telegram-onboarding.ts';
 import { setupHint } from './setup-hints.ts';
 
@@ -25,9 +26,16 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     true, 45, 'all-hours', true, true,
     true, 60, 'daytime', false,
     false, true,
+    true, 'Asia/Manila', 7, 10, true, true,
+    true, 'Asia/Manila', 19, 25, true, true,
+    true, 'Asia/Manila', 20, 0, false,
+    true, 'Asia/Manila', 21, 5, true, false,
+    false, true,
   ];
+  let promptCount = 0;
   const next = async (message: string) => {
     if (!answers.length) throw new SafeError('synthetic_setup_answers_invalid');
+    promptCount++;
     print(`[SYNTHETIC prompt] ${message} [scripted answer]`);
     return answers.shift() as never;
   };
@@ -108,9 +116,42 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
   }
   const cancelledChange = { code: 'health_setup_not_confirmed' as const, retained: structuredClone(allHoursHealth.dataHealth) };
   const healthOff = await configureHealth(allHoursHealth, p);
-  if (answers.length) throw new SafeError('synthetic_setup_answers_invalid');
   print('[SYNTHETIC result] Health rehearsal finishes off. The public default remains off and no personal health threshold was chosen.');
-  print('6. Owner actions: Cloudflare account/KV setup, secret upload and deployment pending; webhook/menu registration pending.');
+  print('6. Rehearse npm run recap:setup: illustrative 07:10 and 19:25 Asia/Manila schedules, explicitly entered with separate schedule and save consent. These are not personal defaults.');
+  const daytimeRecap = await configureRecap(healthOff, p);
+  const nighttimeRecap = await configureRecap(daytimeRecap, p);
+  const cancelRecap = async () => {
+    const before = JSON.stringify(nighttimeRecap);
+    try {
+      await configureRecap(nighttimeRecap, p);
+      throw new SafeError('synthetic_recap_cancellation_expected');
+    } catch (error) {
+      if (!(error instanceof SafeError) || error.code !== 'recap_setup_not_confirmed') throw error;
+      if (JSON.stringify(nighttimeRecap) !== before) throw new SafeError('synthetic_recap_cancellation_changed_settings');
+      print(`[SYNTHETIC result] recap_setup_not_confirmed: ${setupHint('recap_setup_not_confirmed')}`);
+      print('[SYNTHETIC result] Previous in-memory recap preference retained; no settings returned to save.');
+    }
+    return { code: 'recap_setup_not_confirmed' as const, retained: structuredClone(nighttimeRecap.dailyRecap) };
+  };
+  print('[SYNTHETIC cancellation] Decline the 20:00 schedule consent; retain the previous recap policy.');
+  const declinedSchedule = await cancelRecap();
+  print('[SYNTHETIC cancellation] Decline saving a 21:05 recap change; retain the previous recap policy.');
+  const cancelledRecap = await cancelRecap();
+  const beforeInvalid = promptCount;
+  try {
+    await configureRecap({ ...nighttimeRecap,
+      dailyRecap: { ...nighttimeRecap.dailyRecap, scheduleConfirmed: false } as never }, p);
+    throw new SafeError('synthetic_recap_invalid_settings_expected');
+  } catch (error) {
+    if (!(error instanceof SafeError) || error.code !== 'daily_recap_config_invalid') throw error;
+    if (promptCount !== beforeInvalid) throw new SafeError('synthetic_recap_invalid_settings_prompted');
+    print(`[SYNTHETIC result] daily_recap_config_invalid: ${setupHint('daily_recap_config_invalid')}`);
+    print('[SYNTHETIC result] Invalid saved recap consent rejected before prompts. Correct or omit only the recap block privately; no automatic repair or personal schedule was chosen.');
+  }
+  const recapOff = await configureRecap(nighttimeRecap, p);
+  if (answers.length) throw new SafeError('synthetic_setup_answers_invalid');
+  print('[SYNTHETIC result] Recap rehearsal finishes off. The public default remains off and no personal recap schedule was chosen.');
+  print('7. Owner actions: Cloudflare account/KV setup, secret upload and deployment pending; webhook/menu registration pending.');
   print('Private CI handoff not performed: prepare your own WORKER_CONFIG_JSON in the production environment after real setup. Do not copy this synthetic configuration snapshot. Use the existing manual, main-only delivery workflow only after release checks; no snapshot, secret or deployment is uploaded by this rehearsal. See docs/CI-CD.md.');
   print('Live validation: Deye access unverified; Telegram receipt unverified; Cron cycles unverified; CPU/quotas unverified.');
   print('Nighttime battery use remains for the house. A forecast or charging report grants no overnight EV exception.');
@@ -120,6 +161,8 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     print(`Recovery example — ${code}: ${setupHint(code)}`);
   }
   print('SYNTHETIC rehearsal complete. No owner files read or saved, no live provider call, secret upload, registration or deployment.');
-  return { config: healthOff, requests, liveValidated: false as const,
+  return { config: recapOff, requests, liveValidated: false as const,
+    recapRehearsal: { daytime: daytimeRecap.dailyRecap, nighttime: nighttimeRecap.dailyRecap,
+      declinedSchedule, cancelledChange: cancelledRecap, invalidSaved: { code: 'daily_recap_config_invalid' as const, prompted: false as const } },
     healthRehearsal: { daytime: daytimeHealth.dataHealth, allHours: allHoursHealth.dataHealth, cancelledChange } };
 }
