@@ -59,6 +59,10 @@ Subsequent monitor integration now imports preparation/rendering and persists op
 
 Synthetic assertions cover the one-read/two-spaced-write cooldown recap, two informational sends sharing one result checkpoint, normal/failed-provider three-write bounds and old-state/disabled compatibility. One workerd scheduled case intercepts only Telegram and preserves queued battery advice. The larger current bundle and enabled validation/formatting/queue CPU remain unmeasured in production; public defaults/private settings stay off and owner setup/CI enablement remain gated. See [validation notes](VALIDATION.md) for local results. The earlier design/foundation/rendering paragraphs describe their staged changes; preparation is now part of the deployed bundle, without any actual installation deployment or quota measurement claim.
 
+## Proposed general quiet hours: budget review (2026-10-28)
+
+The documentation-only [quiet-hours contract](QUIET-HOURS.md#resource-contract-and-source-review) rechecked the official Workers limits, KV limits and consistency pages. Free Cron CPU remains 10 ms; KV allows 1,000 daily writes and one write/second to a key, with eventually consistent cached reads. This is public documentation verification, not account/CPU testing. The proposal shares the existing 288 ticks, two monitor checkpoints, token write, two event/send slots and existing read/provider paths: the calculated 864/912-write envelope keeps its current assumptions. A less-than-128-byte monotonic-clock companion would use the same monitor record/checkpoints; typical enabled cooldown writes could increase, without auth/Deye/weather during cooldown. Selected quiet discharge skips weather preparation, and quiet hours never force a provider refresh or deferred replay. Future constant-work helpers and cold/warm Free CPU observations remain gates. No runtime dependency, field, cost, setting or behavior is added by this design-only change.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.
