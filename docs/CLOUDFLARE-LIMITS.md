@@ -53,6 +53,12 @@ The subsequent pure policy/slot-preparation foundation is deliberately outside t
 
 Shared snapshot rendering now serves existing authorized brief status, reusing its two reads, one replay write and one reply. Extracted detailed update text preserves its existing path. Fixed recap presentation, conditional command links and an explicit display-only zone add bounded branches/text and reuse the single formatter; no provider request, state/config field, queue slot, KV operation or scheduled recap call is added. The pure workerd harness makes zero outbound requests and does not establish Cron delivery. Updated bundle measurements are in [validation notes](VALIDATION.md); cold/warm production CPU remains unmeasured. The schedule-preparation module stays outside the deployed graph.
 
+## Default-off recap integration (2026-10-28)
+
+Subsequent monitor integration now imports preparation/rendering and persists optional recap metadata/events in the same record/checkpoints. No additional Cron, key/read, provider refresh, history, queue slot, Telegram attempt or result checkpoint is added. Priority is battery > health > recap, with skipped/evicted/expired dates consumed rather than replayed. Enabled cooldown ticks can use one state write, or two on delivery, without auth/Deye/weather calls; combined health/recap delivery can use both existing Telegram attempts. Typical cooldown writes can increase, while the existing two-monitor-plus-one-token ceiling retains the 864/912 daily calculation under its original assumptions. Recap-off legacy cooldown retains its zero-write path; opt-out cleanup needs one checkpoint, and whole-monitor off remains zero IO.
+
+Synthetic assertions cover the one-read/two-spaced-write cooldown recap, two informational sends sharing one result checkpoint, normal/failed-provider three-write bounds and old-state/disabled compatibility. One workerd scheduled case intercepts only Telegram and preserves queued battery advice. The larger current bundle and enabled validation/formatting/queue CPU remain unmeasured in production; public defaults/private settings stay off and owner setup/CI enablement remain gated. See [validation notes](VALIDATION.md) for local results. The earlier design/foundation/rendering paragraphs describe their staged changes; preparation is now part of the deployed bundle, without any actual installation deployment or quota measurement claim.
+
 ## Sources
 
 - [Workers limits](https://developers.cloudflare.com/workers/platform/limits/), including the separate Cron CPU table and subrequest limits.

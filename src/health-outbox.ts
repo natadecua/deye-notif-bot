@@ -26,6 +26,10 @@ export function settleHealth(s: State, c: Config, a: HealthAlert, outcome: 'acce
 }
 export function makeBatteryRoom(s: State, c: Config, now: number): void {
   if (s.pending.length < 2) return;
+  if (s.pending.some(a => a.kind === 'recap')) {
+    s.pending = s.pending.filter(a => a.kind !== 'recap');
+    return;
+  }
   const health = s.pending.find((a): a is HealthAlert => a.kind === 'health');
   if (health) {
     settleHealth(s, c, health, 'abandoned', now);
@@ -50,12 +54,16 @@ export function syncHealth(s: State, c: Config, observation: HealthObservation, 
   }
   const candidate = result.candidate;
   s.pending = s.pending.filter(a => a.kind !== 'health' || same(a.notice, candidate));
+  if (candidate && !s.pending.some(a => a.kind === 'health') && s.pending.length >= 2) {
+    s.pending = s.pending.filter(a => a.kind !== 'recap');
+  }
   if (candidate && s.pending.length < 2 && !s.pending.some(a => a.kind === 'health')) {
     s.pending.push({ kind: 'health', id: id(candidate), notice: candidate,
       createdAt: candidate.qualifiedAt, attempts: 0, nextAttemptAt: now });
   }
   const queued = s.pending.find((a): a is HealthAlert => a.kind === 'health');
-  if (queued) s.pending = [...s.pending.filter(a => a.kind !== 'health'), queued];
+  if (queued) s.pending = [...s.pending.filter(a => a.kind !== 'health' && a.kind !== 'recap'), queued,
+    ...s.pending.filter(a => a.kind === 'recap')];
 }
 // Re-evaluate time/window/evidence after waits; never advance persisted state or poll.
 export function healthMessage(s: State, c: Config, a: HealthAlert, now: number): string | undefined {

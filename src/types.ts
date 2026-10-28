@@ -53,6 +53,8 @@ export interface Config {
   daytimeDischarge?: DaytimeDischarge;
   weather?: WeatherConfig;
   dataHealth?: DataHealthConfig;
+  // Default off; owner setup/CI enablement remain a separate release gate.
+  dailyRecap?: import('./recap-config.ts').DailyRecapPolicy | { enabled: false };
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -91,7 +93,11 @@ export interface HealthAlert extends PendingDelivery {
   kind: 'health';
   notice: import('./data-health.ts').HealthCandidate;
 }
-export type PendingAlert = Alert | HealthAlert;
+export interface RecapAlert extends PendingDelivery {
+  kind: 'recap';
+  slot: import('./daily-recap.ts').DailyRecapSlot;
+}
+export type PendingAlert = Alert | HealthAlert | RecapAlert;
 export interface State {
   version: 1;
   identity: string;
@@ -106,6 +112,7 @@ export interface State {
   // Optional context is decoded independently so corrupt weather cannot stop alerts.
   weather?: unknown;
   dataHealth?: unknown;
+  dailyRecap?: unknown;
   pending: PendingAlert[];
   apiFailures: number;
   apiRetryAt: number;

@@ -6,8 +6,10 @@ import { activeChargingSession, chargingSummary, type BotState } from './bot-sta
 import { daytimeIdentity, daytimePeriod, daytimeSummary, dischargeWindowOpen } from './daytime.ts';
 import { displayTime } from './display-time.ts';
 import { makeBatteryRoom, validHealthAlert } from './health-outbox.ts';
+import { validRecapAlert } from './recap-outbox.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
+export function isBatteryAlert(a: PendingAlert): a is Alert { return a.kind === 'full' || a.kind === 'discharge'; }
 export function initialState(c: Config): State {
   return { version: 1, identity: stateIdentity(c), fullArmed: true, dischargeArmed: true,
     highCount: 0, pending: [], apiFailures: 0, apiRetryAt: 0,
@@ -46,8 +48,10 @@ export function decodeState(value: string | null, c: Config): State {
       (s.latestReading !== undefined && (!s.latestReading || !finite(s.latestReading.at) ||
         !finite(s.latestReading.soc) || s.latestReading.soc > 100 || !finite(s.latestReading.dischargeWatts) ||
         s.latestReading.at !== s.lastReadingAt)) ||
-      !Array.isArray(s.pending) || s.pending.length > 2 || s.pending.filter(a => a?.kind === 'health').length > 1 || s.pending.some(a =>
+      !Array.isArray(s.pending) || s.pending.length > 2 || s.pending.filter(a => a?.kind === 'health').length > 1 ||
+      s.pending.filter(a => a?.kind === 'recap').length > 1 || s.pending.some(a =>
         a?.kind === 'health' ? !validHealthAlert(a) :
+        a?.kind === 'recap' ? !validRecapAlert(a) :
         !a || !['full', 'discharge'].includes(a.kind) || typeof a.id !== 'string' ||
         !a.reading || !finite(a.reading.at) || !finite(a.reading.soc) || a.reading.soc > 100 ||
         !finite(a.reading.dischargeWatts) || !finite(a.createdAt) || !finite(a.nextAttemptAt) ||
@@ -69,8 +73,8 @@ export function decodeState(value: string | null, c: Config): State {
   return initialState(c);
 }
 export function expirePending(s: State, now: number): void {
-  // Health expiry/exhaustion is settled by syncHealth so it cannot mint a new retry.
-  s.pending = s.pending.filter(a => a.kind === 'health' || (now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3));
+  // Informational expiry/exhaustion is settled without minting a new candidate.
+  s.pending = s.pending.filter(a => !isBatteryAlert(a) || (now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3));
 }
 export function resetAfterGap(s: State, c: Config, now: number): void {
   if (s.lastReadingAt === undefined || now - s.lastReadingAt > c.maxGapSeconds * 1000) resetDischargeConfirmation(s);
@@ -135,6 +139,7 @@ export function batteryLoadSummary(c: Config): string {
 }
 export function alertText(a: PendingAlert, c: Config, context?: { bot?: BotState; now: number }): string {
   if (a.kind === 'health') throw new SafeError('health_event_requires_context');
+  if (a.kind === 'recap') throw new SafeError('recap_event_requires_context');
   const when = displayTime(a.reading.at, c, 'readable');
   const footer = `\n\nReading: ${when}\nDeye Cloud data may be delayed.`;
   if (a.kind === 'full') {

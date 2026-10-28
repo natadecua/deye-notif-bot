@@ -1,4 +1,4 @@
-import { alertText, decodeState, expirePending, resetAfterGap, resetDischargeConfirmation, transition } from './alerts.ts';
+import { alertText, decodeState, expirePending, isBatteryAlert, resetAfterGap, resetDischargeConfirmation, transition } from './alerts.ts';
 import { notificationEnabled, validateConfig } from './config.ts';
 import { DeyeClient } from './deye.ts';
 import { errorCode, SafeError } from './errors.ts';
@@ -10,6 +10,7 @@ import { dischargeWindowOpen } from './daytime.ts';
 import { prepareWeather, fetchWeather, weatherText, type WeatherCache } from './weather.ts';
 import { healthMessage, settleHealth, syncHealth } from './health-outbox.ts';
 import type { HealthObservation } from './data-health.ts';
+import { recapMessage, syncRecap } from './recap-outbox.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -21,13 +22,14 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   const now = deps.now();
   const events: string[] = [];
   const pendingBefore = state.pending.length;
-  state.pending = state.pending.filter(a => a.kind === 'health' || notificationEnabled(c, a.kind));
+  state.pending = state.pending.filter(a => !isBatteryAlert(a) || notificationEnabled(c, a.kind));
   const cancelledByPreference = state.pending.length !== pendingBefore;
   resetAfterGap(state, c, now);
   expirePending(state, now);
   const backoff = now < state.apiRetryAt;
   const healthWork = c.dataHealth?.enabled || state.dataHealth !== undefined || state.pending.some(a => a.kind === 'health');
-  if (backoff && !healthWork) {
+  const recapWork = c.dailyRecap?.enabled || state.dailyRecap !== undefined || state.pending.some(a => a.kind === 'recap');
+  if (backoff && !healthWork && !recapWork) {
     if (cancelledByPreference) await env.STATE.put('monitor:v1', JSON.stringify(state));
     return ['api_backoff'];
   }
@@ -45,9 +47,9 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     // Drop delayed messages whose triggering condition no longer holds, even if
     // hysteresis hasn't rearmed yet. Do not send outdated amperage advice.
     if (eligibleToSend) {
-      state.pending = state.pending.filter(a => a.kind === 'health' || (a.kind === 'full' ? reading.soc >= c.fullSoc :
+      state.pending = state.pending.filter(a => !isBatteryAlert(a) || (a.kind === 'full' ? reading.soc >= c.fullSoc :
         reading.dischargeWatts > c.dischargeWatts && dischargeWindowOpen(c, reading.at, deps.now())));
-      for (const a of state.pending) if (a.kind !== 'health') a.reading = reading;
+      for (const a of state.pending) if (isBatteryAlert(a)) a.reading = reading;
     }
     state.apiFailures = 0;
     state.apiRetryAt = 0;
@@ -65,6 +67,8 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   }
   const healthError = healthWork ? syncHealth(state, c, observation, deps.now()) : undefined;
   if (healthError) events.push(healthError);
+  const recapError = recapWork ? syncRecap(state, c, deps.now()) : undefined;
+  if (recapError) events.push(recapError);
   // The optional hourly weather guard shares the existing first checkpoint.
   let refreshWeather = false;
   if (eligibleToSend && state.pending.some(a => a.kind === 'discharge' && a.nextAttemptAt <= deps.now() &&
@@ -79,10 +83,17 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   let changed = false;
   for (const a of [...state.pending]) {
     if (a.nextAttemptAt > deps.now()) continue;
-    let healthText: string | undefined;
+    let informationalText: string | undefined;
     if (a.kind === 'health') {
-      healthText = healthMessage(state, c, a, deps.now());
-      if (!healthText) continue;
+      informationalText = healthMessage(state, c, a, deps.now());
+      if (!informationalText) continue;
+    } else if (a.kind === 'recap') {
+      informationalText = recapMessage(state, c, a, deps.now(), bot);
+      if (!informationalText) {
+        state.pending = state.pending.filter(p => p.id !== a.id);
+        changed = true;
+        continue;
+      }
     } else if (!eligibleToSend) continue;
     if (a.kind === 'discharge' && !dischargeWindowOpen(c, a.reading.at, deps.now())) {
       state.pending = state.pending.filter(p => p.id !== a.id);
@@ -107,7 +118,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       const sentAt = deps.now();
       const prompt = activeChargingSession(bot, sentAt) ? 'Update your charging report:' : 'Are you charging an EV?';
       const forecast = a.kind === 'discharge' ? weatherText(state.weather, c, sentAt) : '';
-      const text = healthText ?? (alertText(a, c, { bot, now: sentAt }) + (forecast ? `\n\n${forecast}` : '') +
+      const text = informationalText ?? (alertText(a, c, { bot, now: sentAt }) + (forecast ? `\n\n${forecast}` : '') +
         (confirmCharging ? `\n\n${prompt}` : ''));
       await sendTelegram(env, text, deps, confirmCharging && a.kind === 'discharge' ? { inline_keyboard: [[
         { text: "Yes, I'm charging", callback_data: `charging:yes:${a.reading.at}` },
@@ -127,6 +138,10 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
           Math.floor(deps.random() * 30_000), error.retryAt);
         if (a.kind === 'health' && a.nextAttemptAt > a.createdAt + 1800_000) {
           settleHealth(state, c, a, 'abandoned', deps.now());
+          state.pending = state.pending.filter(p => p.id !== a.id);
+          events.push('notification_abandoned');
+        }
+        if (a.kind === 'recap' && a.nextAttemptAt >= a.slot.expiresAt) {
           state.pending = state.pending.filter(p => p.id !== a.id);
           events.push('notification_abandoned');
         }

@@ -2,15 +2,10 @@ import type { Config } from './types.ts';
 import { SafeError } from './errors.ts';
 import { stateIdentity } from './config.ts';
 import { zonedDateParts } from './daytime.ts';
+import { validateDailyRecap, type DailyRecapPolicy } from './recap-config.ts';
+export { validateDailyRecap, type DailyRecapPolicy } from './recap-config.ts';
 
-// Preparation contract only; deliberately not imported by the Worker entry graph.
-export interface DailyRecapPolicy {
-  enabled: true;
-  timeZone: string;
-  hour: number;
-  minute: number;
-  scheduleConfirmed: true;
-}
+// Pure preparation/rechecks; monitor owns persistence and transport.
 export interface DailyRecapState {
   version: 1;
   policy: string;
@@ -42,24 +37,6 @@ function local(at: number, zone: string) {
   const day = `${part('year')}-${part('month')}-${part('day')}`;
   if (!date(day)) throw new SafeError('daily_recap_clock_invalid');
   return { day, minute: Number(part('hour')) * 60 + Number(part('minute')), second: Number(part('second')) };
-}
-export function validateDailyRecap(raw: unknown, installationTimeZone?: string): DailyRecapPolicy | undefined {
-  if (raw === undefined) return;
-  const p = object(raw), invalid = () => { throw new SafeError('daily_recap_config_invalid'); };
-  if (!p || typeof p.enabled !== 'boolean') return invalid();
-  if (!p.enabled) {
-    if (Object.keys(p).length !== 1) return invalid();
-    return;
-  }
-  if (Object.keys(p).length !== 5 || Object.keys(p).some(k =>
-      !['enabled', 'timeZone', 'hour', 'minute', 'scheduleConfirmed'].includes(k)) ||
-      p.scheduleConfirmed !== true || typeof p.timeZone !== 'string' || p.timeZone.length > 64 ||
-      !/^[A-Za-z][A-Za-z0-9_+\/-]*$/.test(p.timeZone) ||
-      (installationTimeZone !== undefined && p.timeZone !== installationTimeZone) ||
-      typeof p.hour !== 'number' || !Number.isInteger(p.hour) || p.hour < 0 || p.hour > 23 ||
-      typeof p.minute !== 'number' || !Number.isInteger(p.minute) || p.minute < 0 || p.minute > 55 || p.minute % 5 !== 0) return invalid();
-  try { zonedDateParts(0, p.timeZone); } catch { return invalid(); }
-  return { enabled: true, timeZone: p.timeZone, hour: p.hour, minute: p.minute, scheduleConfirmed: true };
 }
 function policyIdentity(c: Config, p: DailyRecapPolicy): string {
   return JSON.stringify([stateIdentity(c), p.timeZone, p.hour, p.minute]);
@@ -115,13 +92,18 @@ export function advanceDailyRecap(c: Config, rawPolicy: unknown, rawState: unkno
   result.candidate = { policy: identity, localDate: current.day, dueAt, expiresAt };
   return result;
 }
+export function validDailyRecapSlot(raw: unknown): raw is DailyRecapSlot {
+  const s = object(raw);
+  return !!s && Object.keys(s).length === 4 && Object.keys(s).every(k => ['policy', 'localDate', 'dueAt', 'expiresAt'].includes(k)) &&
+    validIdentity(s.policy) && date(s.localDate) && time(s.dueAt) && time(s.expiresAt) &&
+    s.dueAt % 1000 === 0 && s.expiresAt === s.dueAt + TTL;
+}
 export function dailyRecapSlotOpen(c: Config, rawPolicy: unknown, rawState: unknown, rawSlot: unknown, now: number): boolean {
   if (!c.enabled || !time(now)) return false;
   try {
-    const p = validateDailyRecap(rawPolicy, c.daytimeDischarge?.timeZone), s = decode(rawState), slot = object(rawSlot);
-    if (!p || !s || !slot || slot.policy !== policyIdentity(c, p) || slot.policy !== s.policy ||
-        !date(slot.localDate) || slot.localDate !== s.resolvedDay || !time(slot.dueAt) || !time(slot.expiresAt) ||
-        slot.dueAt % 1000 !== 0 || slot.expiresAt !== slot.dueAt + TTL || slot.dueAt > s.observedAt ||
+    const p = validateDailyRecap(rawPolicy, c.daytimeDischarge?.timeZone), s = decode(rawState), slot = rawSlot;
+    if (!p || !s || !validDailyRecapSlot(slot) || slot.policy !== policyIdentity(c, p) || slot.policy !== s.policy ||
+        slot.localDate !== s.resolvedDay || slot.dueAt > s.observedAt ||
         now < s.observedAt || now < slot.dueAt || now >= slot.expiresAt) return false;
     const original = local(slot.dueAt, p.timeZone), current = local(now, p.timeZone), minute = p.hour * 60 + p.minute;
     return original.day === slot.localDate && original.minute === minute && original.second === 0 &&

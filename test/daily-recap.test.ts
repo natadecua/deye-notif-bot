@@ -243,7 +243,7 @@ test('slot preparation uses constant formatter work, without scanning missing da
   } finally { Intl.DateTimeFormat.prototype.formatToParts = original; }
 });
 
-test('existing monitor stays disconnected: no recap field, event, extra IO or disabled-mode work', async () => {
+test('recap-off monitor retains no recap field/event/extra IO and disabled mode stays idle', async () => {
   const h = harness(c); h.reading(80, 0); await runMonitor(h.env, h.deps);
   assert.equal(h.sent.length, 0); assert.equal(h.kv.puts.filter(p => p.key === 'monitor:v1').length, 1);
   assert(!h.kv.data.get('monitor:v1')!.includes('recap'));

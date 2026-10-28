@@ -4,6 +4,7 @@ import { validateChargingProfiles } from './profiles.ts';
 import { validateDaytime } from './daytime.ts';
 import { validateWeather } from './weather.ts';
 import { validateDataHealth } from './health-config.ts';
+import { validateDailyRecap } from './recap-config.ts';
 
 export const HOSTS = {
   eu: 'https://eu1-developer.deyecloud.com/v1.0',
@@ -42,6 +43,7 @@ export function validateConfig(raw: unknown): Config {
   validateDaytime(c.daytimeDischarge);
   validateWeather(c.weather);
   validateDataHealth(c);
+  validateDailyRecap(c.dailyRecap, c.daytimeDischarge?.timeZone);
   if (c.telegram !== undefined && (!c.telegram || Array.isArray(c.telegram) ||
       typeof c.telegram.enabled !== 'boolean')) throw new SafeError('telegram_preferences_invalid');
   return c;
