@@ -17,13 +17,13 @@ const report = (status: 'charging' | 'not_charging' = 'charging', at = now, cont
 const expected = '🔋 Battery status · brief\nCharge: 82% · Battery discharge: 315 W\n' +
   'Reading: 2026-10-21 12:00:00 UTC\nData age: 0 s (within freshness limit)\n' +
   'Load breakdown: unknown.\nMonitoring: enabled.\nUpdates: no retry delay recorded.\n' +
-  'Health notices: off.\nCached only; cloud data may be delayed. /status for details.\n\nEV charging: unknown';
+  'Health notices: off.\nRecap: off.\nCached only; cloud data may be delayed. /status for details.\n\nEV charging: unknown';
 function bounded(text: string) {
   assert(text.length <= 1000, `snapshot length ${text.length}`);
   assert.doesNotMatch(text, /synthetic-private|stationId|https?:\/\/|reduce|pause charging|EV caused|estimated headroom/i);
 }
 
-test('shared brief snapshot preserves the current complete reply including manual-unknown evidence', () => {
+test('shared brief snapshot includes recap-off configuration and complete manual-unknown evidence', () => {
   assert.equal(renderBriefSnapshot(seed(), c, now), expected);
 });
 
@@ -134,15 +134,20 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
   const context = config({ telegram: { enabled: true }, ev: { enabled: true, confirmed: true, phases: 1, voltage: 230, minimumAmps: 8,
     profiles: Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, label: String(i).padStart(2, '0') + 'x'.repeat(38), type: 'amps', amps: 8 + i })) },
     daytimeDischarge: { timeZone: 'America/Argentina/ComodRivadavia', startHour: 6, endHour: 18, minimumMinutes: 15 },
+    dailyRecap: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', hour: 17, minute: 35, scheduleConfirmed: true },
     weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true },
     dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true } });
   const state = seed(context); state.latestReading!.dischargeWatts = Number.MAX_VALUE; state.apiRetryAt = 8.64e15;
   const bot = report('charging', now, context); Object.assign(bot.session, { profileId: 'p0' });
   const before = JSON.stringify({ state, context, bot });
-  for (const kind of ['status', 'recap'] as const) {
-    const text = renderBriefSnapshot(state, context, now, bot, { kind });
-    assert.match(text, /Reported profile:/); assert.match(text, /Health notices: on \(configured\)/);
-    assert.match(text, /Source: manual confirmation/); assert.match(text, /Load breakdown: unknown/); bounded(text);
+  for (const enabled of [true, false]) {
+    for (const kind of ['status', 'recap'] as const) {
+      const text = renderBriefSnapshot(state, { ...context, enabled }, now, bot, { kind });
+      assert.match(text, /Reported profile:/);
+      assert.match(text, enabled ? /Health notices: on \(configured\)/ : /Health notices: paused \(configured on\)/);
+      assert.match(text, enabled ? /Recap: on \(configured\)/ : /Recap: paused \(configured on\)/);
+      assert.match(text, /Source: manual confirmation/); assert.match(text, /Load breakdown: unknown/); bounded(text);
+    }
   }
   assert.equal(JSON.stringify({ state, context, bot }), before);
 });
@@ -159,7 +164,7 @@ function webhookSetup() {
   return { ...h, reads, before, request, env: { ...h.env, TELEGRAM_OWNER_ID: '789', TELEGRAM_WEBHOOK_SECRET: secret } };
 }
 
-test('existing brief webhook reply and IO are unchanged before and after extraction', async () => {
+test('brief webhook retains complete evidence and existing IO with recap-off configuration', async () => {
   const h = webhookSetup(); assert.equal((await handleTelegramRequest(h.request(), h.env, h.deps)).status, 200);
   assert.equal(h.sent[0], expected); assert.deepEqual(h.reads, ['telegram:v1', 'monitor:v1']);
   assert.deepEqual(h.kv.puts.map(p => p.key), ['telegram:v1']); assert.equal(h.calls.length, 1);
@@ -172,6 +177,6 @@ test('existing authorization and detailed status stay separate from pure renderi
   assert.deepEqual(h.reads, []); assert.equal(h.calls.length, 0); assert.equal(h.kv.puts.length, 0);
   await handleTelegramRequest(h.request('/status'), h.env, h.deps);
   assert.match(h.sent[0], /📡 Cached update status/); assert.match(h.sent[0], /EV charging: unknown/);
-  assert.doesNotMatch(h.sent[0], /Battery status · brief|daily recap/);
+  assert.doesNotMatch(h.sent[0], /Battery status · brief|Battery snapshot · daily recap/);
   assert.equal(h.kv.data.get('monitor:v1'), h.before); assert.equal(h.calls.length, 1);
 });

@@ -28,7 +28,8 @@
     "preferences": "tsx scripts/cli.ts preferences",
     "daytime:setup": "tsx scripts/cli.ts daytime-setup",
     "weather:setup": "tsx scripts/cli.ts weather-setup",
-    "health:setup": "tsx scripts/cli.ts health-setup"
+    "health:setup": "tsx scripts/cli.ts health-setup",
+    "recap:setup": "tsx scripts/cli.ts recap-setup"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",

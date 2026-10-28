@@ -50,6 +50,8 @@ The pipeline does not create a KV namespace, rotate provider secrets, manipulate
 
 Optional health preferences prepared by `npm run health:setup` can be included in the owner's private configuration snapshot. The adapter accepts only `dataHealth.enabled`, `warnAfterMinutes`, `delivery` and `allHoursConfirmed`, then validates the explicit duration/window/nighttime consent. Unknown nested fields are rejected rather than published. Omission remains off; no personal setting is enabled by CI validation. Update the private snapshot yourself and use the existing manual release workflow only after account setup, receipt and CPU gates are met. No new secret, provider call or automatic deployment trigger is introduced.
 
+Optional recap preferences prepared offline with `npm run recap:setup` can also enter that private snapshot. Only `dailyRecap.enabled`, `timeZone`, `hour`, `minute` and `scheduleConfirmed` are allowlisted; shared validation requires explicit schedule consent, valid matching installation timezone and five-minute time steps. Unknown nested fields, coercions and partial consent are rejected. Omitted/canonical off stays off, and no time is selected by CI. Local saving does not update GitHub's private snapshot; the owner must do that separately before manual release. Recap needs no new secret or provider access. This loop did not upload or change an installation snapshot.
+
 See [validation record](VALIDATION.md) for locally tested commands, the observed failing acceptance tests and any hosted GitHub run results. Workflow syntax validation and local runtime tests do not establish that a real Cloudflare deployment has succeeded. Production deployment requires the owner-specific environment secrets above.
 
 ## Official references

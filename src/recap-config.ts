@@ -1,5 +1,6 @@
 import { SafeError } from './errors.ts';
 import { zonedDateParts } from './daytime.ts';
+import type { Config } from './types.ts';
 
 export interface DailyRecapPolicy {
   enabled: true;
@@ -26,4 +27,23 @@ export function validateDailyRecap(raw: unknown, installationTimeZone?: string):
       typeof p.minute !== 'number' || !Number.isInteger(p.minute) || p.minute < 0 || p.minute > 55 || p.minute % 5 !== 0) return invalid();
   try { zonedDateParts(0, p.timeZone); } catch { return invalid(); }
   return { enabled: true, timeZone: p.timeZone, hour: p.hour, minute: p.minute, scheduleConfirmed: true };
+}
+
+// Configuration only: never read/advance recap metadata or promise operation/receipt.
+export function recapPreferencesText(c: Config, brief = false): string {
+  try {
+    const p = validateDailyRecap(c.dailyRecap, c.daytimeDischarge?.timeZone);
+    if (brief) {
+      const label = p ? c.enabled ? 'on (configured)' : 'paused (configured on)' : 'off';
+      return `Recap: ${label}${p && c.telegram?.enabled ? '; /settings for policy.' : '.'}`;
+    }
+    if (!p) return 'Recap: off. Optional local setup: npm run recap:setup.';
+    const time = `${String(p.hour).padStart(2, '0')}:${String(p.minute).padStart(2, '0')}`;
+    return `Recap: on at ${time} ${p.timeZone} (configured).` +
+      (c.enabled ? '' : '\nRecap delivery paused: scheduled monitoring is disabled.') +
+      '\nRecap is independent of battery notification switches; muting full/discharge does not mute recap.' +
+      '\nConfiguration does not verify scheduled operation or message receipt. Change locally: npm run recap:setup.';
+  } catch {
+    return 'Recap: invalid saved settings; not ready. Review local recap settings before deployment.';
+  }
 }

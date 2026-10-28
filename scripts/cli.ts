@@ -18,6 +18,7 @@ import { webhookRegistration } from './telegram-onboarding.ts';
 import { configureDaytime } from './daytime-preferences.ts';
 import { configureWeather } from './weather-preferences.ts';
 import { configureHealth } from './health-preferences.ts';
+import { configureRecap } from './recap-preferences.ts';
 import { runOwnerSetup, configureTelegramOwner } from './owner-setup.ts';
 import { setupHint } from './setup-hints.ts';
 
@@ -138,6 +139,13 @@ try {
       w.vars.MONITOR_CONFIG = await configureDaytime(w.vars.MONITOR_CONFIG, preferencePrompts);
       await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
       console.log('Saved daytime preferences in ignored wrangler.jsonc. No provider calls or deployment were made. Run npm run deploy to apply to an existing installation.');
+      break;
+    }
+    case 'recap-setup': {
+      const w = await config();
+      w.vars.MONITOR_CONFIG = await configureRecap(w.vars.MONITOR_CONFIG, preferencePrompts);
+      await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
+      console.log('Saved recap preferences in ignored wrangler.jsonc. No provider calls or deployment were made. Run npm run deploy to apply to an existing installation.');
       break;
     }
     case 'health-setup': {

@@ -1,6 +1,7 @@
 import type { Config, State } from './types.ts';
 import { chargingSummary, type BotState } from './bot-state.ts';
 import { displayTimeInZone } from './display-time.ts';
+import { recapPreferencesText } from './recap-config.ts';
 
 // Pure cached views: callers supply validated configuration/decoded records and
 // their clock. Never fetch, decode optional metadata, advance a lifecycle or write.
@@ -48,6 +49,7 @@ export function renderBriefSnapshot(state: State, c: Config, now: number, bot?: 
   const policyLink = commands ? '; /settings for policy.' : '.';
   lines.push(c.dataHealth?.enabled ? (c.enabled ? 'Health notices: on (configured)' :
     'Health notices: paused (configured on)') + policyLink : 'Health notices: off.');
+  lines.push(recapPreferencesText(c, true));
   if (commands && c.weather?.enabled) lines.push('Weather: /status for cached forecast.');
   lines.push('Cached only; cloud data may be delayed.' + (commands ? ' /status for details.' : ''));
   return lines.join('\n') + `\n\n${chargingSummary(commands ? bot : undefined, c, now, formatTime)}`;

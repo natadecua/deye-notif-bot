@@ -18,6 +18,29 @@ function environment() {
     CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(settings()) };
 }
 
+test('CI accepts only explicit recap fields and applies shared consent/zone/time validation', () => {
+  const s = settings(), policy = { enabled: true as const, timeZone: 'Asia/Manila', hour: 17, minute: 35, scheduleConfirmed: true as const };
+  s.vars.MONITOR_CONFIG.dailyRecap = policy;
+  const prepare = () => prepareDeployment({ ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) });
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.dailyRecap, policy);
+  for (const key of ['token', 'url', 'stationId', 'resolvedDay']) {
+    s.vars.MONITOR_CONFIG.dailyRecap = { ...policy, [key]: 'synthetic-private-value' };
+    assert.throws(prepare, /ci_config_unsupported_field/);
+  }
+  for (const invalid of [{ ...policy, scheduleConfirmed: false }, { ...policy, hour: '17' },
+    { ...policy, minute: 4 }, { ...policy, timeZone: 'Bad/Synthetic' }]) {
+    s.vars.MONITOR_CONFIG.dailyRecap = invalid as never;
+    assert.throws(prepare, /daily_recap_config_invalid/);
+  }
+  s.vars.MONITOR_CONFIG.dailyRecap = policy;
+  s.vars.MONITOR_CONFIG.daytimeDischarge = { timeZone: 'UTC', startHour: 6, endHour: 18, minimumMinutes: 15 };
+  assert.throws(prepare, /daily_recap_config_invalid/);
+  s.vars.MONITOR_CONFIG.daytimeDischarge.timeZone = 'Asia/Manila';
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.dailyRecap, policy);
+  s.vars.MONITOR_CONFIG.dailyRecap = { enabled: false };
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.dailyRecap, { enabled: false });
+});
+
 test('CI accepts explicitly consented health notices and rejects nested extras or invalid consent', () => {
   const s = settings();
   s.vars.MONITOR_CONFIG.dataHealth = { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true };

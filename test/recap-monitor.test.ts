@@ -250,11 +250,12 @@ test('legacy recap-off cooldown and disabled monitoring retain zero extra work',
   assert.deepEqual(await runMonitor(paused.env, paused.deps), ['monitor_disabled']); assert.equal(paused.calls.length, 0);
 });
 
-test('CI recap enablement remains unavailable and the public template stays off', () => {
+test('CI recap configuration is accepted only after explicit consent and the public template stays off', () => {
   const template = JSON.parse(readFileSync(new NodeURL('../wrangler.example.jsonc', import.meta.url), 'utf8'));
   assert.equal(template.vars.MONITOR_CONFIG.dailyRecap, undefined);
   const source = { ...template, name: 'synthetic-monitor', kv_namespaces: [{ binding: 'STATE', id: 'b'.repeat(32) }],
     vars: { MONITOR_CONFIG: settings() } };
-  assert.throws(() => prepareDeployment({ GITHUB_ACTIONS: 'true', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
-    CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(source) }), /ci_config_unsupported_field/);
+  assert.deepEqual(prepareDeployment({ GITHUB_ACTIONS: 'true', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+    CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(source) }).vars.MONITOR_CONFIG.dailyRecap,
+    source.vars.MONITOR_CONFIG.dailyRecap);
 });

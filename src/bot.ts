@@ -11,6 +11,7 @@ import { weatherStatusText } from './weather.ts';
 import { profileReports, PROFILE_REPORT_HELP } from './profile-reports.ts';
 import { displayTime } from './display-time.ts';
 import { healthPreferencesText } from './health-config.ts';
+import { recapPreferencesText } from './recap-config.ts';
 import { helpNavigation, navigationCommand, NAVIGATION_HELP, NAVIGATION_EXPIRED } from './help-navigation.ts';
 import { cachedUpdateStatus, renderBriefSnapshot } from './snapshot.ts';
 
@@ -45,7 +46,7 @@ async function status(env: Env, c: Config, now: number, brief = false, bot?: Bot
   if (brief) return renderBriefSnapshot(state, c, now, bot);
   const r = state.latestReading;
   const weather = weatherStatusText(state.weather, c, now);
-  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}` + (weather ? `\n\n${weather}` : '');
+  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}\n\n${recapPreferencesText(c)}` + (weather ? `\n\n${weather}` : '');
   if (!r) return '🔋 Battery status\n\nNo cached reading yet.' + context;
   const ageMs = now - r.at, age = Math.floor(ageMs / 1000);
   const quality = ageMs < 0 || ageMs > c.maxAgeSeconds * 1000 ? 'stale — do not treat this as current' : 'within the configured freshness limit';

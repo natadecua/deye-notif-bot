@@ -24,9 +24,12 @@ export function setupHint(code: string): string | undefined {
     case 'weather_setup_not_confirmed':
     case 'daytime_setup_not_confirmed':
     case 'health_setup_not_confirmed':
+    case 'recap_setup_not_confirmed':
       return 'This preference change was not saved. Rerun its setup command when ready; deployment remains a separate manual step.';
     case 'data_health_config_invalid':
       return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.dataHealth, then rerun npm run health:setup. Duration must be 15–120 whole minutes and longer than freshness; daytime requires an existing window and all-hours requires nighttime consent. Apply changes manually; keep monitoring enabled for health-only cleanup before rollback.';
+    case 'daily_recap_config_invalid':
+      return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.dailyRecap, then rerun npm run recap:setup. Enter an explicit valid timezone matching any daytime rule, whole hour 0–23, minute 0–55 in five-minute steps and schedule consent. Apply manually; keep monitoring enabled for recap-only cleanup before rollback.';
     default:
       return telegramSetupHint(code);
   }
