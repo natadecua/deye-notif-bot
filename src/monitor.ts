@@ -11,6 +11,7 @@ import { prepareWeather, fetchWeather, weatherText, type WeatherCache } from './
 import { healthMessage, settleHealth, syncHealth } from './health-outbox.ts';
 import type { HealthObservation } from './data-health.ts';
 import { recapMessage, syncRecap } from './recap-outbox.ts';
+import { advanceQuietHours, type QuietHoursState } from './quiet-hours.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -21,6 +22,28 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   const now = deps.now();
   const events: string[] = [];
+  const quietWork = c.quietHours?.enabled || state.quietHours !== undefined;
+  let quietChanged = false, quietClockInvalid = false;
+  const quietMuted = (at: number) => {
+    if (!quietWork) return;
+    const result = advanceQuietHours(c, c.quietHours, state.quietHours, at);
+    if (result.status === 'off') {
+      if (state.quietHours !== undefined) { delete state.quietHours; quietChanged = true; }
+    } else if (result.status === 'invalid') {
+      if (!events.includes(result.code)) events.push(result.code);
+      quietClockInvalid = result.code === 'quiet_hours_clock_invalid';
+      return result.muted; // Retain corrupt optional metadata; no silent reset.
+    } else if (result.status === 'ok') {
+      const before = state.quietHours as QuietHoursState | undefined;
+      if (!before || before.lastObservedAt !== result.state.lastObservedAt) quietChanged = true;
+      state.quietHours = result.state;
+      quietClockInvalid = false;
+      return result.muted;
+    }
+  };
+  quietMuted(now);
+  // An invalid clock cannot establish source freshness or safe core timestamps.
+  if (quietClockInvalid) return events;
   const pendingBefore = state.pending.length;
   state.pending = state.pending.filter(a => !isBatteryAlert(a) || notificationEnabled(c, a.kind));
   const cancelledByPreference = state.pending.length !== pendingBefore;
@@ -29,7 +52,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   const backoff = now < state.apiRetryAt;
   const healthWork = c.dataHealth?.enabled || state.dataHealth !== undefined || state.pending.some(a => a.kind === 'health');
   const recapWork = c.dailyRecap?.enabled || state.dailyRecap !== undefined || state.pending.some(a => a.kind === 'recap');
-  if (backoff && !healthWork && !recapWork) {
+  if (backoff && !healthWork && !recapWork && !quietWork) {
     if (cancelledByPreference) await env.STATE.put('monitor:v1', JSON.stringify(state));
     return ['api_backoff'];
   }
@@ -71,7 +94,9 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   if (recapError) events.push(recapError);
   // The optional hourly weather guard shares the existing first checkpoint.
   let refreshWeather = false;
-  if (eligibleToSend && state.pending.some(a => a.kind === 'discharge' && a.nextAttemptAt <= deps.now() &&
+  const mutedBeforeCheckpoint = quietMuted(deps.now());
+  if (quietClockInvalid) return events;
+  if (eligibleToSend && !mutedBeforeCheckpoint?.discharge && state.pending.some(a => a.kind === 'discharge' && a.nextAttemptAt <= deps.now() &&
       dischargeWindowOpen(c, a.reading.at, deps.now()))) {
     const prepared = prepareWeather(c, state.weather, deps.now());
     state.weather = prepared.cache;
@@ -80,8 +105,26 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   // Persist latches and outbox BEFORE contacting Telegram. If this fails, no send.
   await env.STATE.put('monitor:v1', JSON.stringify(state));
   const checkpointAt = deps.now();
+  quietChanged = false;
   let changed = false;
+  // No admission after this checkpoint: expiry can only remove original events.
+  const expireAfterWait = (at: number) => {
+    if (!quietWork) return;
+    const before = state.pending.length;
+    expirePending(state, at);
+    for (const pending of [...state.pending]) {
+      if (pending.kind === 'health' && (at - pending.createdAt > 1800_000 || pending.attempts >= 3)) {
+        settleHealth(state, c, pending, 'abandoned', at);
+        state.pending = state.pending.filter(p => p.id !== pending.id);
+      }
+    }
+    if (state.pending.length !== before) changed = true;
+  };
   for (const a of [...state.pending]) {
+    const muted = quietMuted(deps.now());
+    if (quietClockInvalid) break;
+    expireAfterWait(deps.now());
+    if (!state.pending.some(p => p.id === a.id)) continue;
     if (a.nextAttemptAt > deps.now()) continue;
     let informationalText: string | undefined;
     if (a.kind === 'health') {
@@ -100,15 +143,25 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       changed = true;
       continue;
     }
+    if (muted?.[a.kind]) continue;
     if (a.kind === 'discharge' && refreshWeather) {
       state.weather = await fetchWeather(state.weather as WeatherCache, c, deps);
       refreshWeather = false;
+      if (quietWork) {
+        changed = true; // Weather results share the one final checkpoint even without a send.
+        const afterWeather = quietMuted(deps.now());
+        if (quietClockInvalid) break;
+        expireAfterWait(deps.now());
+        if (!state.pending.some(p => p.id === a.id) || afterWeather?.discharge) continue;
+      }
       if (!dischargeWindowOpen(c, a.reading.at, deps.now())) {
         state.pending = state.pending.filter(p => p.id !== a.id);
         changed = true;
         continue;
       }
     }
+    if (quietWork && isBatteryAlert(a) &&
+        (a.reading.at > deps.now() || deps.now() - a.reading.at > c.maxAgeSeconds * 1000)) continue;
     // Increment in memory; checkpoint after delivery. Crash after a send can still
     // duplicate it. KV is not a transaction or global lock; exactly-once is impossible.
     a.attempts++;
@@ -148,11 +201,15 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       }
     }
   }
+  quietMuted(deps.now());
+  changed ||= quietChanged;
   if (changed) {
     // KV permits at most one write per second to the same key. Space this
     // invocation's two checkpoints; this is not a cross-isolate lock.
-    const spacing = 1100 - (deps.now() - checkpointAt);
+    const elapsed = deps.now() - checkpointAt;
+    const spacing = quietWork && (!Number.isFinite(elapsed) || elapsed < 0) ? 1100 : 1100 - elapsed;
     if (spacing > 0) await deps.sleep(spacing);
+    quietMuted(deps.now());
     await env.STATE.put('monitor:v1', JSON.stringify(state));
   }
   return events;

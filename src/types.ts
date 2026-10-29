@@ -55,6 +55,8 @@ export interface Config {
   dataHealth?: DataHealthConfig;
   // Default off; owner setup/CI enablement remain a separate release gate.
   dailyRecap?: import('./recap-config.ts').DailyRecapPolicy | { enabled: false };
+  // Default off; owner setup/visibility/CI enablement are separate gates.
+  quietHours?: import('./quiet-hours.ts').QuietHoursPolicy | { enabled: false };
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -113,6 +115,7 @@ export interface State {
   weather?: unknown;
   dataHealth?: unknown;
   dailyRecap?: unknown;
+  quietHours?: unknown;
   pending: PendingAlert[];
   apiFailures: number;
   apiRetryAt: number;

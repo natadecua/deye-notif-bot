@@ -189,10 +189,10 @@ test('long gaps and repeated observations use constant formatter work, bounded s
     assert(calls <= 2 * 257);
   } finally { Intl.DateTimeFormat.prototype.formatToParts = original; globalThis.fetch = originalFetch; }
 });
-test('Worker bundle, public defaults, CI rejection and existing monitor IO remain unchanged', async () => {
+test('integrated quiet helper keeps public defaults, CI rejection and quiet-off monitor IO compatible', async () => {
   const bundle = await build({ entryPoints: [fileURLToPath(new NodeURL('../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false, metafile: true });
-  assert(!Object.keys(bundle.metafile!.inputs).some(p => p.replaceAll('\\', '/').endsWith('/quiet-hours.ts')));
+  assert(Object.keys(bundle.metafile!.inputs).some(p => p.replaceAll('\\', '/').endsWith('/quiet-hours.ts')));
   const template = JSON.parse(readFileSync(new NodeURL('../wrangler.example.jsonc', import.meta.url), 'utf8'));
   assert.equal(template.vars.MONITOR_CONFIG.quietHours, undefined);
   const source = { ...template, name: 'synthetic-monitor', kv_namespaces: [{ binding: 'STATE', id: 'b'.repeat(32) }],

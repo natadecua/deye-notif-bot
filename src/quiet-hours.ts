@@ -28,7 +28,7 @@ const time = (raw: unknown): raw is number => typeof raw === 'number' && Number.
   raw >= 0 && raw <= 253402300799999;
 const unmuted = (): QuietCategories => ({ full: false, discharge: false, health: false, recap: false });
 
-// Isolated preparation only: no Config/State acceptance, Worker import, IO or delivery.
+// Pure preparation only: monitor owns persistence and every other delivery gate.
 // The existing base context is validated by the caller, as with recap preparation.
 export function validateQuietHours(raw: unknown,
   context: Pick<Config, 'daytimeDischarge' | 'dailyRecap'> = {}): QuietHoursPolicy | undefined {
