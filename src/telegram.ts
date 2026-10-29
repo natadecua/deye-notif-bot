@@ -8,11 +8,12 @@ export function validateTelegramSecrets(s: Pick<Secrets, 'TELEGRAM_BOT_TOKEN' | 
   }
 }
 export async function sendTelegram(s: Pick<Secrets, 'TELEGRAM_BOT_TOKEN' | 'TELEGRAM_CHAT_ID'>,
-  text: string, deps: Dependencies = defaults): Promise<void> {
+  text: string, deps: Dependencies = defaults, replyMarkup?: { inline_keyboard: { text: string; callback_data: string }[][] }): Promise<void> {
   validateTelegramSecrets(s);
   // One attempt here. Persistent outbox controls retries and honors Retry-After.
   const data = await jsonPost(`https://api.telegram.org/bot${s.TELEGRAM_BOT_TOKEN}/sendMessage`,
-    { chat_id: s.TELEGRAM_CHAT_ID, text, link_preview_options: { is_disabled: true } }, {}, deps, 'telegram', 1);
+    { chat_id: s.TELEGRAM_CHAT_ID, text, link_preview_options: { is_disabled: true },
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }, {}, deps, 'telegram', 1);
   if (data.ok !== true) {
     const parameters = data.parameters as { retry_after?: number } | undefined;
     const code = data.error_code;

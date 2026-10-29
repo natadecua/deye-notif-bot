@@ -12,7 +12,8 @@ test('end-to-end synthetic cycle persists state, avoids duplicate polls and rear
   assert.equal(h.sent.length, 1);
   await runMonitor(h.env, h.deps); assert.equal(h.sent.length, 1);
   h.advance(); h.reading(100, 500); await runMonitor(h.env, h.deps);
-  assert.equal(h.sent.length, 2); assert.match(h.sent[1], /If the EV is charging/);
+  assert.equal(h.sent.length, 2); assert.match(h.sent[1], /Load breakdown: unknown/);
+  assert.doesNotMatch(h.sent[1], /If the EV is charging/);
   h.advance(); h.reading(96, 99); await runMonitor(h.env, h.deps);
   h.advance(); h.reading(100, 400); await runMonitor(h.env, h.deps);
   assert.equal(h.sent.length, 3);

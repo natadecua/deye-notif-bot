@@ -53,3 +53,10 @@ export function profileSummary(profile: ChargingProfile, ev: EVConfig): string {
   const label = profile.label === amps ? amps : `${profile.label}: ${amps}`;
   return `${label} (~${kw} kW${ev.phases === 3 ? ' total, balanced three-phase' : ''})`;
 }
+
+export function chargingProfileReference(ev: EVConfig): string {
+  if (!ev.enabled || !ev.profiles?.length) return '';
+  return 'Your configured settings (nominal estimates):\n' +
+    ev.profiles.map(p => profileSummary(p, ev)).join('\n') +
+    '\nBattery discharge does not measure EV power; solar or grid may supply part of charging demand.';
+}
