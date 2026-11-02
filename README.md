@@ -251,3 +251,7 @@ To pause, remove the Cron in Cloudflare's dashboard, or set `MONITOR_CONFIG.enab
 ## Contributing
 
 See the [related-project comparison](docs/RELATED-PROJECTS.md), [CONTRIBUTING.md](CONTRIBUTING.md), [security guidance](SECURITY.md), [MIT license](LICENSE), and [API verification notes](docs/DEYE-API.md). Fixtures in `test/fixtures/` are explicitly synthetic, not recordings from a real installation. New schemas or device adapters need sanitized, consented evidence and tests before they can be treated as verified integrations.
+
+## Read-only Telegram diagnostics
+
+Run `npm run telegram:doctor` in your private checkout. It checks local command/owner/header configuration and makes one bounded `getMe` and `getWebhookInfo` request each. It reports token acceptance, registered/absent webhook, bounded pending-count information and the presence of a delivery error, without printing tokens, usernames, owner IDs, webhook URLs or upstream error text. This does not establish deployed configuration, correct route ownership or message receipt. It sends no message, consumes no updates, changes no webhook and does not deploy. Notification delivery can already work while commands are disabled and the webhook is absent; notification-only installations do not need commands. For commands, prepare owner pairing, upload secrets, deploy manually, register the authenticated webhook, then verify `/help` and `/status` in the owner chat.

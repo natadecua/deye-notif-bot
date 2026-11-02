@@ -22,6 +22,7 @@ import { configureRecap } from './recap-preferences.ts';
 import { configureQuiet } from './quiet-preferences.ts';
 import { runOwnerSetup, configureTelegramOwner } from './owner-setup.ts';
 import { setupHint } from './setup-hints.ts';
+import { telegramDoctor } from './telegram-doctor.ts';
 
 // Resolve against this repository, even if the command is launched elsewhere.
 const root = fileURLToPath(new NodeURL('../', import.meta.url));
@@ -226,6 +227,13 @@ try {
       }
       for (const [id, type] of chats) console.log(JSON.stringify({ chatId: id, type }));
       if (chats.size === 0) console.log('No message updates. Send /start to this bot, then run this command again.');
+      break;
+    }
+    case 'telegram-doctor': {
+      const w = await config(), s = await secrets(false);
+      console.log(await telegramDoctor(validateConfig(w.vars.MONITOR_CONFIG), s,
+        method => jsonPost(`https://api.telegram.org/bot${s.TELEGRAM_BOT_TOKEN}/${method}`,
+          {}, {}, defaults, 'telegram', 1)));
       break;
     }
     case 'telegram-test': {

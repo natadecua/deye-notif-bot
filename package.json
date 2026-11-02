@@ -13,6 +13,7 @@
     "setup:demo": "tsx scripts/setup-demo.ts",
     "preview": "tsx scripts/cli.ts preview",
     "telegram:test": "tsx scripts/cli.ts telegram-test",
+    "telegram:doctor": "tsx scripts/cli.ts telegram-doctor",
     "check": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "test:mock": "tsx scripts/mock-demo.ts",
