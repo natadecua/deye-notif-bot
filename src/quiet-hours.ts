@@ -52,6 +52,27 @@ export function validateQuietHours(raw: unknown,
     categories: { full: flags.full as boolean, discharge: flags.discharge as boolean,
       health: flags.health as boolean, recap: flags.recap as boolean }, suppressionConfirmed: true };
 }
+
+// Configuration only: do not inspect/advance the monitor's guard or claim current suppression.
+export function quietPreferencesText(c: Config, brief = false): string {
+  try {
+    const p = validateQuietHours(c.quietHours, c);
+    if (brief) {
+      const label = p ? c.enabled ? 'on (configured)' : 'paused (configured on)' : 'off';
+      return `Quiet hours: ${label}${p && c.telegram?.enabled ? '; /settings for policy.' : '.'}`;
+    }
+    if (!p) return 'Quiet hours: off. Optional local setup: npm run quiet:setup.';
+    const time = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    return `Quiet hours: on at ${time(p.startMinute)}–${time(p.endMinute)} ${p.timeZone} (configured; start included, end excluded).` +
+      (c.enabled ? '' : '\nQuiet hours paused: scheduled monitoring is disabled.') +
+      `\nMuted categories: ${categories.filter(k => p.categories[k]).join(', ')}.` +
+      `\nUnmuted categories: ${categories.filter(k => !p.categories[k]).join(', ') || 'none'}.` +
+      '\nOnly proactive delivery is affected; requested replies remain unaffected. Original events can expire without catch-up.' +
+      '\nConfiguration does not verify scheduled operation or message receipt. Change locally: npm run quiet:setup.';
+  } catch {
+    return 'Quiet hours: invalid saved settings; not ready. Review local quiet settings before deployment.';
+  }
+}
 function decode(raw: unknown): QuietHoursState | undefined {
   const s = object(raw);
   return s && exact(s, ['version', 'lastObservedAt']) && s.version === 1 && time(s.lastObservedAt)

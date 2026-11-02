@@ -17,7 +17,7 @@ const report = (status: 'charging' | 'not_charging' = 'charging', at = now, cont
 const expected = '🔋 Battery status · brief\nCharge: 82% · Battery discharge: 315 W\n' +
   'Reading: 2026-10-21 12:00:00 UTC\nData age: 0 s (within freshness limit)\n' +
   'Load breakdown: unknown.\nMonitoring: enabled.\nUpdates: no retry delay recorded.\n' +
-  'Health notices: off.\nRecap: off.\nCached only; cloud data may be delayed. /status for details.\n\nEV charging: unknown';
+  'Health notices: off.\nRecap: off.\nQuiet hours: off.\nCached only; cloud data may be delayed. /status for details.\n\nEV charging: unknown';
 function bounded(text: string) {
   assert(text.length <= 1000, `snapshot length ${text.length}`);
   assert.doesNotMatch(text, /synthetic-private|stationId|https?:\/\/|reduce|pause charging|EV caused|estimated headroom/i);
@@ -135,6 +135,8 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
     profiles: Array.from({ length: 12 }, (_, i) => ({ id: `p${i}`, label: String(i).padStart(2, '0') + 'x'.repeat(38), type: 'amps', amps: 8 + i })) },
     daytimeDischarge: { timeZone: 'America/Argentina/ComodRivadavia', startHour: 6, endHour: 18, minimumMinutes: 15 },
     dailyRecap: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', hour: 17, minute: 35, scheduleConfirmed: true },
+    quietHours: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', startMinute: 1320, endMinute: 360,
+      categories: { full: true, discharge: true, health: true, recap: true }, suppressionConfirmed: true },
     weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true },
     dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true } });
   const state = seed(context); state.latestReading!.dischargeWatts = Number.MAX_VALUE; state.apiRetryAt = 8.64e15;
@@ -146,6 +148,7 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
       assert.match(text, /Reported profile:/);
       assert.match(text, enabled ? /Health notices: on \(configured\)/ : /Health notices: paused \(configured on\)/);
       assert.match(text, enabled ? /Recap: on \(configured\)/ : /Recap: paused \(configured on\)/);
+      assert.match(text, enabled ? /Quiet hours: on \(configured\)/ : /Quiet hours: paused \(configured on\)/);
       assert.match(text, /Source: manual confirmation/); assert.match(text, /Load breakdown: unknown/); bounded(text);
     }
   }

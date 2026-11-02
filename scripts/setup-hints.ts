@@ -25,7 +25,10 @@ export function setupHint(code: string): string | undefined {
     case 'daytime_setup_not_confirmed':
     case 'health_setup_not_confirmed':
     case 'recap_setup_not_confirmed':
+    case 'quiet_setup_not_confirmed':
       return 'This preference change was not saved. Rerun its setup command when ready; deployment remains a separate manual step.';
+    case 'quiet_hours_config_invalid':
+      return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.quietHours, then rerun npm run quiet:setup. Enter a matching explicit timezone, distinct five-minute local boundaries, all four category choices and suppression consent. Apply manually; keep monitoring enabled and verify quiet-only cleanup before rollback; preserve battery/health/recap settings.';
     case 'data_health_config_invalid':
       return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.dataHealth, then rerun npm run health:setup. Duration must be 15–120 whole minutes and longer than freshness; daytime requires an existing window and all-hours requires nighttime consent. Apply changes manually; keep monitoring enabled for health-only cleanup before rollback.';
     case 'daily_recap_config_invalid':

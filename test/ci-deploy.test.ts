@@ -18,6 +18,35 @@ function environment() {
     CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(settings()) };
 }
 
+test('CI accepts consented quiet policy and rejects extra top-level/nested fields and invalid values', () => {
+  const s = settings(), policy = { enabled: true as const, timeZone: 'Asia/Manila', startMinute: 1320, endMinute: 360,
+    categories: { full: true, discharge: false, health: true, recap: false }, suppressionConfirmed: true as const };
+  const prepare = () => prepareDeployment({ ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) });
+  s.vars.MONITOR_CONFIG.quietHours = policy;
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.quietHours, policy);
+  for (const key of ['token', 'url', 'stationId', 'lastObservedAt']) {
+    for (const nested of [false, true]) {
+      s.vars.MONITOR_CONFIG.quietHours = nested ? { ...policy, categories: { ...policy.categories, [key]: 'synthetic-private' } } :
+        { ...policy, [key]: 'synthetic-private' };
+      assert.throws(prepare, /^SafeError: ci_config_unsupported_field$/);
+    }
+  }
+  for (const invalid of [{ ...policy, suppressionConfirmed: false }, { ...policy, startMinute: '1320' },
+    { ...policy, endMinute: 4 }, { ...policy, categories: { ...policy.categories, full: 'true' } },
+    { ...policy, categories: { full: false, discharge: false, health: false, recap: false } }]) {
+    s.vars.MONITOR_CONFIG.quietHours = invalid as never;
+    assert.throws(prepare, /^SafeError: quiet_hours_config_invalid$/);
+  }
+  s.vars.MONITOR_CONFIG.quietHours = policy;
+  s.vars.MONITOR_CONFIG.daytimeDischarge = { timeZone: 'UTC', startHour: 6, endHour: 18, minimumMinutes: 15 };
+  assert.throws(prepare, /quiet_hours_config_invalid/);
+  s.vars.MONITOR_CONFIG.daytimeDischarge.timeZone = 'Asia/Manila';
+  s.vars.MONITOR_CONFIG.dailyRecap = { enabled: true, timeZone: 'Asia/Manila', hour: 7, minute: 0, scheduleConfirmed: true };
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.quietHours, policy);
+  s.vars.MONITOR_CONFIG.quietHours = { enabled: false };
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.quietHours, { enabled: false });
+});
+
 test('CI accepts only explicit recap fields and applies shared consent/zone/time validation', () => {
   const s = settings(), policy = { enabled: true as const, timeZone: 'Asia/Manila', hour: 17, minute: 35, scheduleConfirmed: true as const };
   s.vars.MONITOR_CONFIG.dailyRecap = policy;

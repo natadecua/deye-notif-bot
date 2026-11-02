@@ -189,7 +189,7 @@ test('long gaps and repeated observations use constant formatter work, bounded s
     assert(calls <= 2 * 257);
   } finally { Intl.DateTimeFormat.prototype.formatToParts = original; globalThis.fetch = originalFetch; }
 });
-test('integrated quiet helper keeps public defaults, CI rejection and quiet-off monitor IO compatible', async () => {
+test('integrated quiet helper keeps public defaults, explicit CI policy and quiet-off monitor IO compatible', async () => {
   const bundle = await build({ entryPoints: [fileURLToPath(new NodeURL('../src/index.ts', import.meta.url))],
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false, metafile: true });
   assert(Object.keys(bundle.metafile!.inputs).some(p => p.replaceAll('\\', '/').endsWith('/quiet-hours.ts')));
@@ -197,8 +197,8 @@ test('integrated quiet helper keeps public defaults, CI rejection and quiet-off 
   assert.equal(template.vars.MONITOR_CONFIG.quietHours, undefined);
   const source = { ...template, name: 'synthetic-monitor', kv_namespaces: [{ binding: 'STATE', id: 'b'.repeat(32) }],
     vars: { MONITOR_CONFIG: { ...c, quietHours: policy() } } };
-  assert.throws(() => prepareDeployment({ GITHUB_ACTIONS: 'true', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
-    CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(source) }), /ci_config_unsupported_field/);
+  assert.deepEqual(prepareDeployment({ GITHUB_ACTIONS: 'true', CLOUDFLARE_ACCOUNT_ID: 'a'.repeat(32),
+    CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(source) }).vars.MONITOR_CONFIG.quietHours, policy());
   const h = harness(c); h.reading(80, 0); await runMonitor(h.env, h.deps);
   assert.equal(h.sent.length, 0); assert.equal(h.kv.puts.filter(p => p.key === 'monitor:v1').length, 1);
   assert(!h.kv.data.get('monitor:v1')!.includes('quietHours'));
