@@ -10,6 +10,59 @@ import { fileURLToPath, URL as NodeURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 // All policies, accounts, transports and temporary owner-file sentinels are synthetic.
+test('quiet rehearsal uses explicit same-day and midnight-crossing policies then saves only quiet off', async () => {
+  const source = config({ enabled: false, measurementsConfirmed: false }), before = structuredClone(source), output: string[] = [];
+  const result = await runSetupWalkthrough(source, s => output.push(s));
+  assert('quietRehearsal' in result, 'Expected quiet-hours real-helper journey');
+  const q = result.quietRehearsal as { daytime: unknown; overnight: unknown };
+  assert.deepEqual(q.daytime, { enabled: true, timeZone: 'Asia/Manila', startMinute: 720, endMinute: 780,
+    categories: { full: false, discharge: true, health: false, recap: false }, suppressionConfirmed: true });
+  assert.deepEqual(q.overnight, { enabled: true, timeZone: 'Asia/Manila', startMinute: 1320, endMinute: 360,
+    categories: { full: true, discharge: true, health: true, recap: true }, suppressionConfirmed: true });
+  assert.equal(result.config.quietHours, undefined); assert.equal(result.config.dataHealth, undefined);
+  assert.equal(result.config.dailyRecap, undefined); assert.deepEqual(source, before);
+  assert.deepEqual(result.requests, { deye: 3, telegram: 4, weather: 0 });
+  const text = output.join('\n');
+  assert.match(text, /quiet:setup.*illustrative/i); assert.match(text, /12:00–13:00 Asia\/Manila/);
+  assert.match(text, /22:00–06:00 Asia\/Manila/);
+  for (const category of ['full', 'discharge', 'health', 'recap']) {
+    assert.equal((text.match(new RegExp(`Type mute or keep for ${category} notifications`, 'g')) ?? []).length, 4);
+  }
+  assert.equal((text.match(/\[SYNTHETIC prompt\] I accept suppression/g) ?? []).length, 4);
+  assert.equal((text.match(/\[SYNTHETIC prompt\] Save these quiet-hours preferences locally/g) ?? []).length, 4);
+  assert.match(text, /expire without catch-up/); assert.match(text, /Quiet-hours rehearsal finishes off.*no personal/i);
+});
+
+test('quiet rehearsal exercises both cancellation points and retains the previous policy', async () => {
+  const output: string[] = [], result = await runSetupWalkthrough(config({ enabled: false, measurementsConfirmed: false }), s => output.push(s));
+  assert('quietRehearsal' in result, 'Expected quiet cancellation evidence');
+  const q = result.quietRehearsal as { overnight: unknown; declinedSuppression: unknown; cancelledChange: unknown };
+  assert.deepEqual(q.declinedSuppression, { code: 'quiet_setup_not_confirmed', retained: q.overnight });
+  assert.deepEqual(q.cancelledChange, { code: 'quiet_setup_not_confirmed', retained: q.overnight });
+  const text = output.join('\n');
+  assert.equal((text.match(/quiet_setup_not_confirmed:.*not saved/g) ?? []).length, 2);
+  assert.equal((text.match(/Previous in-memory quiet preference retained/g) ?? []).length, 2);
+});
+
+test('quiet rehearsal rejects invalid saved consent before prompts and prints fixed private recovery', async () => {
+  const originalFetch = globalThis.fetch, output: string[] = [];
+  globalThis.fetch = async () => { throw new Error('Synthetic forbidden live access'); };
+  try {
+    const result = await runSetupWalkthrough(config({ enabled: false, measurementsConfirmed: false }), s => output.push(s));
+    assert('quietRehearsal' in result, 'Expected quiet invalid-consent evidence');
+    const q = result.quietRehearsal as { invalidSaved: unknown };
+    assert.deepEqual(q.invalidSaved, { code: 'quiet_hours_config_invalid', prompted: false });
+    const text = output.join('\n');
+    assert.match(text, /quiet_hours_config_invalid:.*wrangler\.jsonc.*quietHours/);
+    assert.match(text, /Invalid saved quiet consent rejected before prompts/);
+    assert.match(text, /WORKER_CONFIG_JSON/); assert.match(text, /manual.*main-only/);
+    assert.match(text, /do not copy.*synthetic.*snapshot/i); assert.match(text, /receipt.*unverified/);
+    assert.match(text, /does not authorize overnight EV charging/);
+    assert.doesNotMatch(text, /synthetic-password|synthetic-app-secret|synthetic-bearer|789|123:synthetic-token|secret_token|"stationId"|"quietHours"/);
+    assert.equal(result.liveValidated, false); assert.deepEqual(result.requests, { deye: 3, telegram: 4, weather: 0 });
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('recap rehearsal explicitly chooses illustrative schedules through the real helper and finishes off', async () => {
   const source = config({ enabled: false, measurementsConfirmed: false }), before = structuredClone(source), output: string[] = [];
   const result = await runSetupWalkthrough(source, text => output.push(text));
@@ -170,6 +223,10 @@ test('the standalone demo runs outside the checkout without using environment cr
     assert.match(result.stdout, /recap_setup_not_confirmed.*not saved/);
     assert.match(result.stdout, /Recap rehearsal finishes off/);
     assert.match(result.stdout, /Invalid saved recap consent rejected before prompts/);
+    assert.match(result.stdout, /quiet:setup/);
+    assert.match(result.stdout, /quiet_setup_not_confirmed.*not saved/);
+    assert.match(result.stdout, /Quiet-hours rehearsal finishes off/);
+    assert.match(result.stdout, /Invalid saved quiet consent rejected before prompts/);
     assert.match(result.stdout, /CI.*handoff.*not performed/i);
     assert.doesNotMatch(result.stdout + result.stderr, new RegExp(sentinel));
     for (const file of ['.dev.vars', 'wrangler.jsonc']) assert.equal(readFileSync(join(sandbox, file), 'utf8'), sentinel);

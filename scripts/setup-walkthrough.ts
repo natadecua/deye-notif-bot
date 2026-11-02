@@ -8,6 +8,7 @@ import { configureDaytime } from './daytime-preferences.ts';
 import { configureWeather } from './weather-preferences.ts';
 import { configureHealth } from './health-preferences.ts';
 import { configureRecap } from './recap-preferences.ts';
+import { configureQuiet } from './quiet-preferences.ts';
 import { webhookRegistration } from './telegram-onboarding.ts';
 import { setupHint } from './setup-hints.ts';
 
@@ -30,6 +31,11 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     true, 'Asia/Manila', 19, 25, true, true,
     true, 'Asia/Manila', 20, 0, false,
     true, 'Asia/Manila', 21, 5, true, false,
+    false, true,
+    true, 'Asia/Manila', '12:00', '13:00', 'keep', 'mute', 'keep', 'keep', true, true,
+    true, 'Asia/Manila', '22:00', '06:00', 'mute', 'mute', 'mute', 'mute', true, true,
+    true, 'Asia/Manila', '21:00', '05:00', 'keep', 'mute', 'keep', 'keep', false,
+    true, 'Asia/Manila', '20:00', '04:00', 'keep', 'mute', 'keep', 'keep', true, false,
     false, true,
   ];
   let promptCount = 0;
@@ -149,9 +155,42 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     print('[SYNTHETIC result] Invalid saved recap consent rejected before prompts. Correct or omit only the recap block privately; no automatic repair or personal schedule was chosen.');
   }
   const recapOff = await configureRecap(nighttimeRecap, p);
-  if (answers.length) throw new SafeError('synthetic_setup_answers_invalid');
   print('[SYNTHETIC result] Recap rehearsal finishes off. The public default remains off and no personal recap schedule was chosen.');
-  print('7. Owner actions: Cloudflare account/KV setup, secret upload and deployment pending; webhook/menu registration pending.');
+  print('7. Rehearse npm run quiet:setup: illustrative 12:00–13:00 and 22:00–06:00 Asia/Manila windows, four typed category choices and separate suppression/save consent. These are not personal defaults.');
+  const daytimeQuiet = await configureQuiet(recapOff, p);
+  const overnightQuiet = await configureQuiet(daytimeQuiet, p);
+  const cancelQuiet = async () => {
+    const before = JSON.stringify(overnightQuiet);
+    try {
+      await configureQuiet(overnightQuiet, p);
+      throw new SafeError('synthetic_quiet_cancellation_expected');
+    } catch (error) {
+      if (!(error instanceof SafeError) || error.code !== 'quiet_setup_not_confirmed') throw error;
+      if (JSON.stringify(overnightQuiet) !== before) throw new SafeError('synthetic_quiet_cancellation_changed_settings');
+      print(`[SYNTHETIC result] quiet_setup_not_confirmed: ${setupHint('quiet_setup_not_confirmed')}`);
+      print('[SYNTHETIC result] Previous in-memory quiet preference retained; no settings returned to save.');
+    }
+    return { code: 'quiet_setup_not_confirmed' as const, retained: structuredClone(overnightQuiet.quietHours) };
+  };
+  print('[SYNTHETIC cancellation] Decline suppression consent for a 21:00–05:00 change; retain the previous quiet policy.');
+  const declinedSuppression = await cancelQuiet();
+  print('[SYNTHETIC cancellation] Decline saving a 20:00–04:00 change; retain the previous quiet policy.');
+  const cancelledQuiet = await cancelQuiet();
+  const beforeInvalidQuiet = promptCount;
+  try {
+    await configureQuiet({ ...overnightQuiet,
+      quietHours: { ...overnightQuiet.quietHours, suppressionConfirmed: false } as never }, p);
+    throw new SafeError('synthetic_quiet_invalid_settings_expected');
+  } catch (error) {
+    if (!(error instanceof SafeError) || error.code !== 'quiet_hours_config_invalid') throw error;
+    if (promptCount !== beforeInvalidQuiet) throw new SafeError('synthetic_quiet_invalid_settings_prompted');
+    print(`[SYNTHETIC result] quiet_hours_config_invalid: ${setupHint('quiet_hours_config_invalid')}`);
+    print('[SYNTHETIC result] Invalid saved quiet consent rejected before prompts. Correct or omit only the quiet block privately; no automatic repair or personal window/categories were chosen.');
+  }
+  const quietOff = await configureQuiet(overnightQuiet, p);
+  if (answers.length) throw new SafeError('synthetic_setup_answers_invalid');
+  print('[SYNTHETIC result] Quiet-hours rehearsal finishes off. Health/recap/quiet blocks are omitted; no personal quiet policy was chosen and public defaults remain off.');
+  print('8. Owner actions: Cloudflare account/KV setup, secret upload and deployment pending; webhook/menu registration pending.');
   print('Private CI handoff not performed: prepare your own WORKER_CONFIG_JSON in the production environment after real setup. Do not copy this synthetic configuration snapshot. Use the existing manual, main-only delivery workflow only after release checks; no snapshot, secret or deployment is uploaded by this rehearsal. See docs/CI-CD.md.');
   print('Live validation: Deye access unverified; Telegram receipt unverified; Cron cycles unverified; CPU/quotas unverified.');
   print('Nighttime battery use remains for the house. A forecast or charging report grants no overnight EV exception.');
@@ -161,7 +200,9 @@ export async function runSetupWalkthrough(source: Config, print: (text: string) 
     print(`Recovery example — ${code}: ${setupHint(code)}`);
   }
   print('SYNTHETIC rehearsal complete. No owner files read or saved, no live provider call, secret upload, registration or deployment.');
-  return { config: recapOff, requests, liveValidated: false as const,
+  return { config: quietOff, requests, liveValidated: false as const,
+    quietRehearsal: { daytime: daytimeQuiet.quietHours, overnight: overnightQuiet.quietHours,
+      declinedSuppression, cancelledChange: cancelledQuiet, invalidSaved: { code: 'quiet_hours_config_invalid' as const, prompted: false as const } },
     recapRehearsal: { daytime: daytimeRecap.dailyRecap, nighttime: nighttimeRecap.dailyRecap,
       declinedSchedule, cancelledChange: cancelledRecap, invalidSaved: { code: 'daily_recap_config_invalid' as const, prompted: false as const } },
     healthRehearsal: { daytime: daytimeHealth.dataHealth, allHours: allHoursHealth.dataHealth, cancelledChange } };
