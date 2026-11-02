@@ -41,7 +41,7 @@ test('brief status is a readable cached measurement view with the same authentic
   const h = setup(), before = h.seed({ at: h.clock.time, soc: 82, dischargeWatts: 315 });
   assert.equal((await h.send()).status, 200);
   assert.match(h.sent[0], /Battery status · brief/);
-  assert.match(h.sent[0], /Charge: 82%/); assert.match(h.sent[0], /Battery discharge: 315 W/);
+  assert.match(h.sent[0], /Charge: 82%/); assert.match(h.sent[0], /Battery discharge: 0.315 kW/);
   assert.match(h.sent[0], new RegExp(displayTime(h.clock.time, h.c)));
   assert.match(h.sent[0], /Data age: 0 s.*within freshness limit/);
   assert.match(h.sent[0], /Load breakdown: unknown/); assert.match(h.sent[0], /EV charging: unknown/);

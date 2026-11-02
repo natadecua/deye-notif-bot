@@ -291,7 +291,7 @@ test('workerd authenticates webhook status and charging buttons using local KV a
     assert.equal((await post(statusUpdate, 'synthetic-wrong')).status, 403);
     assert.equal((await post(statusUpdate)).status, 200);
     assert.match(messages[0].text, /80%/); assert.match(messages[0].text, /EV charging: unknown/);
-    assert.match(messages[0].text, /Battery discharge: 500 W/);
+    assert.match(messages[0].text, /Battery discharge: 0.5 kW/);
     assert.match(messages[0].text, /Household \/ EV split: unknown/);
     assert.equal(latestCalls, 1);
     await new Promise(resolve => setTimeout(resolve, 2100));

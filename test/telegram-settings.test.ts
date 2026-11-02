@@ -7,7 +7,7 @@ test('settings command shows current battery rules and available controls', () =
   const result = applyTelegramCommand(config(), '/settings');
   assert.equal(result.changed, false);
   assert.match(result.reply, /Battery full: on at 100%/);
-  assert.match(result.reply, /Battery supplying power: on above 300 W/);
+  assert.match(result.reply, /Battery supplying power: on above 0.3 kW/);
   assert.match(result.reply, /\/full on\|off/);
 });
 

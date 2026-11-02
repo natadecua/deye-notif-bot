@@ -15,6 +15,8 @@ import { recapPreferencesText } from './recap-config.ts';
 import { quietPreferencesText } from './quiet-hours.ts';
 import { helpNavigation, navigationCommand, NAVIGATION_HELP, NAVIGATION_EXPIRED } from './help-navigation.ts';
 import { cachedUpdateStatus, renderBriefSnapshot } from './snapshot.ts';
+import { settingsMenu, SETTINGS_MENU_EXPIRED } from './settings-menu.ts';
+import { kilowatts } from './power.ts';
 
 const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/discharge_minutes MINUTES — daytime cloud-dip tolerance (1–120)\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
@@ -52,7 +54,7 @@ async function status(env: Env, c: Config, now: number, brief = false, bot?: Bot
   const ageMs = now - r.at, age = Math.floor(ageMs / 1000);
   const quality = ageMs < 0 || ageMs > c.maxAgeSeconds * 1000 ? 'stale — do not treat this as current' : 'within the configured freshness limit';
   const profiles = chargingProfileReference(c.ev);
-  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${Math.round(r.dischargeWatts)} W\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\nDeye Cloud data may be delayed.` + context;
+  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${kilowatts(r.dischargeWatts)}\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\nDeye Cloud data may be delayed.` + context;
 }
 export async function handleTelegramRequest(request: Request, env: Env, deps: Dependencies = defaults): Promise<Response> {
   const ok = () => new Response('OK');
@@ -98,14 +100,29 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (state.used >= 48) return ok();
     const c = validateConfig(resolveSettings(base, state.overrides));
     let reply: string, offerProfiles = false, offerNavigation = false;
+    const ui=settingsMenu(c,now);
+    let settingsMarkup: Parameters<typeof sendTelegram>[3];
+    const isSettings=!!callback&&(callback.data as string).startsWith('pref:');
     const isNavigation = !!callback && (callback.data as string).startsWith('view:');
     const navigation = isNavigation ? navigationCommand(callback!.data as string, now) : undefined;
     if (navigation) command = navigation;
     const reports = profileReports(c, state, now);
     const button = callback ? /^charging:(yes|no):(\d{1,16})$/.exec(callback.data as string) : null;
-    const selectedProfile = callback && !isNavigation && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
+    const selectedProfile = callback && !isNavigation && !isSettings && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
     if (state.used === 47) {
       reply = 'Daily command limit reached. Try again after 00:00 UTC. Scheduled battery monitoring continues.';
+    } else if (isSettings) {
+      const action=await ui.action(callback!.data as string);
+      if(action.kind==='invalid')reply=SETTINGS_MENU_EXPIRED;
+      else if(action.kind==='cancel')reply='Change cancelled. Preferences unchanged. Use /settings to review.';
+      else if(action.kind==='pick'){
+        reply=`Set the house battery discharge threshold to ${kilowatts(action.watts!)}?\nCurrent: ${kilowatts(c.dischargeWatts)}. Re-arm: ${kilowatts(c.dischargeRearmWatts)} (unchanged).\nThis is house battery output, not measured EV charging power. Your existing timing rule is unchanged.\nConfirm to save. This menu expires after 30 minutes or a settings change.`;
+        settingsMarkup=action.markup;
+      } else {
+        const result=applyTelegramCommand(c,`/discharge_watts ${action.watts}`);
+        if(result.changed)state.overrides=settingsOverrides(result.config);
+        reply=result.reply;
+      }
     } else if (isNavigation && !navigation) {
       reply = NAVIGATION_EXPIRED;
     } else if (callback && !navigation && ((!button && !selectedProfile) || (button && (now < Number(button[2]) || now - Number(button[2]) > 30 * 60_000)))) {
@@ -139,9 +156,13 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
       const result = applyTelegramCommand(c, command);
       if (result.changed) state.overrides = settingsOverrides(result.config);
       reply = result.reply;
+      if(command==='/settings'){
+        settingsMarkup=await ui.menu();
+        reply+='\n\nChoose a house battery threshold below, then confirm. For another value: /discharge_kw 0.5. Menus expire after 30 minutes or settings changes.';
+      }
     }
-    const replyMarkup = offerProfiles ? await reports.menu() : offerNavigation ? helpNavigation(now) : undefined;
-    if (replyMarkup) reply += `\n\n${offerProfiles ? PROFILE_REPORT_HELP : NAVIGATION_HELP}`;
+    const replyMarkup = settingsMarkup ?? (offerProfiles ? await reports.menu() : offerNavigation ? helpNavigation(now) : undefined);
+    if (replyMarkup && !settingsMarkup) reply += `\n\n${offerProfiles ? PROFILE_REPORT_HELP : NAVIGATION_HELP}`;
     state.lastUpdateId = update.update_id as number; state.lastHandledAt = now; state.used++;
     await env.STATE.put(BOT_KEY, JSON.stringify(state));
     persisted = true;
@@ -150,7 +171,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (callback) {
       try {
         await jsonPost(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
-          { callback_query_id: callback.id, text: isNavigation ? 'Menu request processed. Check the bot reply.' :
+          { callback_query_id: callback.id, text: isSettings ? 'Settings request processed. Check the bot reply.' : isNavigation ? 'Menu request processed. Check the bot reply.' :
             'Report processed. Check the bot reply.' }, {}, deps, 'telegram', 1);
       } catch { /* Acknowledgement failure must not suppress the ordinary confirmation reply. */ }
     }

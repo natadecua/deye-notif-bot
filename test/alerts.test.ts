@@ -107,8 +107,8 @@ test('house-only discharge alert distinguishes battery output from appliance dem
   const s = initialState(c);
   apply(s, 90, 315); apply(s, 90, 315, 5);
   assert.equal(alertText(s.pending[0], c), [
-    '⚡ House battery supplying power', '', 'Battery discharge: 315 W', 'Charge: 90%',
-    'Above 300 W in two distinct readings.', '',
+    '⚡ House battery supplying power', '', 'Battery discharge: 0.315 kW', 'Charge: 90%',
+    'Above 0.3 kW in two distinct readings.', '',
     'Load breakdown: unknown. Battery output alone does not identify individual loads or total home consumption.', '',
     'Reading: 21 Oct 2026, 12:05:00 UTC', 'Deye Cloud data may be delayed.',
   ].join('\n'));

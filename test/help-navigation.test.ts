@@ -46,7 +46,9 @@ function callbackIO(h: ReturnType<typeof setup>, monitorRead: boolean) {
   assert.deepEqual(h.reads, monitorRead ? ['telegram:v1', 'monitor:v1'] : ['telegram:v1']);
   assert.deepEqual(h.kv.puts.map(p => p.key), ['telegram:v1']);
   assert.deepEqual(h.calls.map(c => c.url.slice(c.url.lastIndexOf('/'))), ['/answerCallbackQuery', '/sendMessage']);
-  assert.equal(JSON.parse(String(h.calls[1].init?.body)).reply_markup, undefined);
+  const markup=JSON.parse(String(h.calls[1].init?.body)).reply_markup;
+  if(h.sent[0].includes('⚙️ Battery notifications'))assert(markup.inline_keyboard.every((row:{callback_data:string}[])=>row.every(b=>b.callback_data.startsWith('pref:pick:'))));
+  else assert.equal(markup,undefined);
   assert.match(JSON.parse(String(h.calls[0].init?.body)).text, /Menu request processed/);
   assert.doesNotMatch(h.sent[0], /synthetic-sensitive-nav|callback_data|stationId|synthetic-nav-callback/);
   h.unchanged();

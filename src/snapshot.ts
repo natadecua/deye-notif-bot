@@ -1,3 +1,4 @@
+import { kilowatts } from './power.ts';
 import type { Config, State } from './types.ts';
 import { chargingSummary, type BotState } from './bot-state.ts';
 import { displayTimeInZone } from './display-time.ts';
@@ -43,7 +44,7 @@ export function renderBriefSnapshot(state: State, c: Config, now: number, bot?: 
     const age = now - r.at;
     const quality = age < 0 ? 'future-dated — not current' : age > c.maxAgeSeconds * 1000 ?
       'stale — not current' : 'within freshness limit';
-    lines.push(`Charge: ${r.soc}% · Battery discharge: ${Math.round(r.dischargeWatts)} W`,
+    lines.push(`Charge: ${r.soc}% · Battery discharge: ${kilowatts(r.dischargeWatts)}`,
       `Reading: ${formatTime(r.at)}`, `Data age: ${Math.floor(age / 1000)} s (${quality})`);
   } else lines.push('No cached reading yet.');
   lines.push('Load breakdown: unknown.', cachedUpdateStatus(state, c, now, true, zone));

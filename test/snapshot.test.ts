@@ -14,7 +14,7 @@ const seed = (context = c): State => ({ ...initialState(context), lastReadingAt:
 const report = (status: 'charging' | 'not_charging' = 'charging', at = now, context = c) => ({
   ...decodeBotState(null, context), session: { status, source: 'manual' as const, at, expiresAt: at + SESSION_MS },
 });
-const expected = '🔋 Battery status · brief\nCharge: 82% · Battery discharge: 315 W\n' +
+const expected = '🔋 Battery status · brief\nCharge: 82% · Battery discharge: 0.315 kW\n' +
   'Reading: 2026-10-21 12:00:00 UTC\nData age: 0 s (within freshness limit)\n' +
   'Load breakdown: unknown.\nMonitoring: enabled.\nUpdates: no retry delay recorded.\n' +
   'Health notices: off.\nRecap: off.\nQuiet hours: off.\nCached only; cloud data may be delayed. /status for details.\n\nEV charging: unknown';

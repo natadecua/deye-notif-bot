@@ -85,10 +85,10 @@ test('/status uses cached telemetry, labels its age and never polls Deye or chan
   const h = setup(); h.reading(82, 800); await runMonitor(h.env, h.deps);
   const before = h.kv.data.get('monitor:v1'); h.calls.length = 0; h.sent.length = 0;
   assert.equal((await h.send(h.message('/status'))).status, 200);
-  assert.match(h.sent[0], /82%/); assert.match(h.sent[0], /800 W/);
+  assert.match(h.sent[0], /82%/); assert.match(h.sent[0], /0.8 kW/);
   assert.match(h.sent[0], /Reading:/); assert.match(h.sent[0], /age/i);
   assert.match(h.sent[0], /EV charging: unknown/i);
-  assert.match(h.sent[0], /Battery discharge: 800 W/);
+  assert.match(h.sent[0], /Battery discharge: 0.8 kW/);
   assert.match(h.sent[0], /Load breakdown: unknown/);
   assert.equal(h.kv.data.get('monitor:v1'), before);
   assert(h.calls.every(c => c.url.endsWith('/sendMessage')));
@@ -337,7 +337,7 @@ test('/status shows configured 8 A, 13 A and MAX reference levels without classi
   const text = h.sent[0];
   assert.match(text, /Your configured settings \(nominal estimates\):\n8 A \(~1\.84 kW\)\n13 A \(~2\.99 kW\)\nMAX: ~7 kW/);
   assert.match(text, /Battery discharge does not measure EV power; solar or grid may supply part of charging demand/);
-  assert.match(text, /Battery discharge: 315 W/);
+  assert.match(text, /Battery discharge: 0.315 kW/);
   assert.match(text, /EV charging: unknown/);
   assert.doesNotMatch(text, /normal house|house.only|EV detected|32 A|30\.4 A/);
   assert.equal(h.kv.data.get('monitor:v1'), before);
@@ -573,7 +573,7 @@ for (const report of ['charging', 'not_charging', 'expired', 'future'] as const)
     h.advance(10_000); h.reading(80, 315); await runMonitor(h.env, h.deps);
     assert.equal(h.sent.length, 1);
     const text = h.sent[0];
-    assert.match(text, /Battery discharge: 315 W/);
+    assert.match(text, /Battery discharge: 0.315 kW/);
     assert.match(text, /Load breakdown: unknown/);
     assert.match(text, /Household \/ EV split: unknown/);
     assert.equal(text.match(/EV charging:/g)!.length, 1);

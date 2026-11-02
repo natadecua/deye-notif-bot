@@ -1,3 +1,4 @@
+import { kilowatts } from './power.ts';
 import type { Alert, Config, PendingAlert, Reading, State } from './types.ts';
 import { notificationEnabled, stateIdentity } from './config.ts';
 import { SafeError } from './errors.ts';
@@ -148,9 +149,9 @@ export function alertText(a: PendingAlert, c: Config, context?: { bot?: BotState
     return `${title}\n\nCharge: ${a.reading.soc}%${target}${footer}`;
   }
   const title = c.daytimeDischarge ? '☀️ Daytime battery use' : '⚡ House battery supplying power';
-  const confirmation = c.daytimeDischarge ? `Above ${c.dischargeWatts} W across readings spanning at least ${c.daytimeDischarge.minimumMinutes} minutes.\nWindow: ${daytimeSummary(c)}.` :
-    `Above ${c.dischargeWatts} W in two distinct readings.`;
-  let text = `${title}\n\nBattery discharge: ${Math.round(a.reading.dischargeWatts)} W\nCharge: ${a.reading.soc}%\n${confirmation}\n\n${batteryLoadSummary(c)}`;
+  const confirmation = c.daytimeDischarge ? `Above ${kilowatts(c.dischargeWatts)} across readings spanning at least ${c.daytimeDischarge.minimumMinutes} minutes.\nWindow: ${daytimeSummary(c)}.` :
+    `Above ${kilowatts(c.dischargeWatts)} in two distinct readings.`;
+  let text = `${title}\n\nBattery discharge: ${kilowatts(a.reading.dischargeWatts)}\nCharge: ${a.reading.soc}%\n${confirmation}\n\n${batteryLoadSummary(c)}`;
   const session = context ? activeChargingSession(context.bot, context.now) : undefined;
   if (c.ev.enabled) {
     text += `\n\n${context ? chargingSummary(context.bot, c, context.now) : 'EV charging: unknown'}`;
