@@ -12,12 +12,13 @@ import { healthMessage, settleHealth, syncHealth } from './health-outbox.ts';
 import type { HealthObservation } from './data-health.ts';
 import { recapMessage, syncRecap } from './recap-outbox.ts';
 import { advanceQuietHours, type QuietHoursState } from './quiet-hours.ts';
+import { resolveSettings } from './telegram-settings.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
   if (!base.enabled) return ['monitor_disabled'];
   const bot = base.telegram?.enabled ? decodeBotState(await env.STATE.get(BOT_KEY), base) : undefined;
-  const c = validateConfig({ ...base, ...bot?.overrides });
+  const c = validateConfig(resolveSettings(base, bot?.overrides));
   validateTelegramSecrets(env);
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   const now = deps.now();

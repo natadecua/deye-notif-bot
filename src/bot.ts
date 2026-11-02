@@ -2,7 +2,7 @@ import { defaults, type Config, type Dependencies, type Env } from './types.ts';
 import { validateConfig } from './config.ts';
 import { batteryLoadSummary, decodeState } from './alerts.ts';
 import { BOT_KEY, chargingSummary, decodeBotState, SESSION_MS, type BotState } from './bot-state.ts';
-import { applyTelegramCommand, settingsOverrides } from './telegram-settings.ts';
+import { applyTelegramCommand, settingsOverrides, resolveSettings } from './telegram-settings.ts';
 import { sendTelegram } from './telegram.ts';
 import { jsonPost } from './http.ts';
 import { SafeError } from './errors.ts';
@@ -16,7 +16,7 @@ import { quietPreferencesText } from './quiet-hours.ts';
 import { helpNavigation, navigationCommand, NAVIGATION_HELP, NAVIGATION_EXPIRED } from './help-navigation.ts';
 import { cachedUpdateStatus, renderBriefSnapshot } from './snapshot.ts';
 
-const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
+const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/discharge_minutes MINUTES — daytime cloud-dip tolerance (1–120)\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
 function secretMatches(actual: string | null, expected: string | undefined): boolean {
@@ -96,7 +96,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     const day = new Date(now).toISOString().slice(0, 10);
     if (state.day !== day) { state.day = day; state.used = 0; }
     if (state.used >= 48) return ok();
-    const c = validateConfig({ ...base, ...state.overrides });
+    const c = validateConfig(resolveSettings(base, state.overrides));
     let reply: string, offerProfiles = false, offerNavigation = false;
     const isNavigation = !!callback && (callback.data as string).startsWith('view:');
     const navigation = isNavigation ? navigationCommand(callback!.data as string, now) : undefined;

@@ -2,6 +2,7 @@ import type { Config } from './types.ts';
 import { validateConfig } from './config.ts';
 import { SafeError } from './errors.ts';
 import type { SettingsOverrides } from './telegram-settings.ts';
+import { resolveSettings } from './telegram-settings.ts';
 import { displayTime } from './display-time.ts';
 
 export const BOT_KEY = 'telegram:v1';
@@ -28,10 +29,10 @@ export function decodeBotState(raw: string | null, c: Config): BotState {
   if (s.context !== context) return decodeBotState(null, c);
   if (s.overrides !== undefined) {
     if (!s.overrides || typeof s.overrides !== 'object' || Array.isArray(s.overrides) ||
-        Object.keys(s.overrides).some(k => !['notifications', 'fullSoc', 'fullRearmSoc', 'dischargeWatts', 'dischargeRearmWatts'].includes(k))) {
+        Object.keys(s.overrides).some(k => !['notifications', 'fullSoc', 'fullRearmSoc', 'dischargeWatts', 'dischargeRearmWatts', 'dischargeMinutes'].includes(k))) {
       throw new SafeError('bot_state_invalid');
     }
-    try { validateConfig({ ...c, ...s.overrides }); } catch { throw new SafeError('bot_state_invalid'); }
+    try { validateConfig(resolveSettings(c, s.overrides)); } catch { throw new SafeError('bot_state_invalid'); }
   }
   return s;
 }

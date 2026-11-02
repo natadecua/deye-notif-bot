@@ -99,3 +99,18 @@ Deferred measured solar/home/grid context needs the evidence listed in [the read
 ## Review evidence
 
 Each PR should state the problem and resulting journey, observed red/green tests, final check results, request/state/CPU impact, migration behavior and any real integration evidence. Keep installation identifiers, raw responses, exceptions, secrets and secret-bearing URLs out of issues and logs. The original implementation is not retroactively described as test-first.
+
+## Next-version priorities after the live review
+
+The live snapshot on 2026-11-02 showed a 137-second-old reading within freshness, zero recorded API failures, no active cooldown/outbox, and a registered Telegram webhook with no pending updates. Retained logs are disabled; these observations do not establish uptime, delivery history or CPU. No new Deye polling or history is required to customize notifications.
+
+Implemented in this version: owner-authorized `/discharge_minutes MINUTES` (whole 1–120) changes only tolerance inside an existing daytime rule. A bounded scalar in the existing bot record is resolved against the current deployment's zone/window, and both commands/monitor use the same resolver. Settings/help explain it, changed duration restarts discharge confirmation, and reset restores the deployment value. If daytime configuration is removed, the valid old scalar is ignored without blocking commands or inventing a window. Existing scalar/switch commands remain. No personal preference was changed during development.
+
+Next useful features, each a separate test-first slice:
+
+1. A settings menu showing current values and fixed preset buttons, with owner authorization, expiry/change guards and explicit confirmation before saving. Keep text commands available and preserve replay/rate/write bounds.
+2. Owner-opt-in sanitized monitor diagnostics: last scheduled attempt/outcome and bounded fixed counters in existing checkpoints, with cache age and clear reset semantics. No upstream bodies/URLs, unbounded history, extra per-tick writes or unconsented retained logs. Measure Free CPU before expanding.
+3. Easier separately consented recap/quiet-hours preparation through the bot, after explicit zone/category/window/consent and migration design; never enable these from a charging report.
+4. Household reserve planning after the missing baseline, morning target and warning-margin inputs are agreed. No threshold or overnight EV exception is selected from apparent spare capacity.
+
+Readable quiet-category descriptions remain a small UI milestone. Optional measured solar/home/grid or direct EV telemetry still requires verified units/scope/freshness and a supported read-only source. No new provider is justified by this snapshot. Production releases remain deliberate; the automated loop does not deploy.
