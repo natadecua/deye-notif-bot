@@ -76,3 +76,38 @@ test('pure grid foundation is outside the deployed Worker graph',async()=>{
   const r=await build({entryPoints:[fileURLToPath(new NodeURL('../src/index.ts',import.meta.url))],bundle:true,write:false,metafile:true,platform:'browser'});
   assert(!Object.keys(r.metafile!.inputs).some(p=>p.replaceAll('\\','/').endsWith('/grid-import.ts')));
 });
+test('zero rearm is rejected rather than accepting a policy that cannot rearm at zero import',()=>{
+  const r=step(undefined,now,500,{...policy,rearmWatts:0});
+  assert.deepEqual(r,{status:'invalid',code:'grid_policy_invalid'});
+});
+test('malformed persisted policy identities cannot silently reset or bypass rollback protection',()=>{
+  const initial=ok(step(undefined)).state;
+  for(const identity of ['', 'synthetic-private-identity', '[]',
+    JSON.stringify(['synthetic-source',300,100,0]),JSON.stringify(['synthetic-source',300,300,5]),
+    ' '+initial.identity,JSON.stringify(['synthetic-source',300,'100',5]),
+    JSON.stringify(['synthetic-source',300,100,5,'extra'])]){
+    for(const at of [now-1,now+300000]){
+      const r=step({...initial,identity},at);
+      assert.deepEqual(r,{status:'invalid',code:'grid_state_invalid'});
+      assert(!JSON.stringify(r).includes('synthetic-private'));
+    }
+  }
+});
+test('latched grid states cannot carry high-import confirmation evidence',()=>{
+  const a=ok(step(undefined)).state;
+  assert.deepEqual(step({...a,armed:false}),{status:'invalid',code:'grid_state_invalid'});
+});
+test('candidate expiry cannot exceed the supported clock range',()=>{
+  const edge=253402300799999;
+  const initial=ok(step(undefined,edge-900000)).state;
+  assert.deepEqual(step(initial,edge-1),{status:'invalid',code:'grid_clock_invalid'});
+});
+test('source keys cannot generate oversized or non-round-trippable identities',()=>{
+  for(const source of ['\u0001'.repeat(64),'source\nprivate','source with spaces','x'.repeat(65)]){
+    assert.deepEqual(advanceGridImport(policy,source,undefined,{at:now,importWatts:500},now,limits),
+      {status:'invalid',code:'grid_policy_invalid'});
+  }
+  const state=ok(advanceGridImport(policy,'v1:synthetic-source_hash.01',undefined,{at:now,importWatts:500},now,limits)).state;
+  assert.equal(ok(advanceGridImport(policy,'v1:synthetic-source_hash.01',JSON.parse(JSON.stringify(state)),
+    {at:now+300000,importWatts:500},now+300000,limits)).event?.importWatts,500);
+});
