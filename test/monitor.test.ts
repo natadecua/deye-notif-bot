@@ -157,3 +157,15 @@ test('Telegram HTTP 408 timeout keeps the alert pending for a bounded later retr
   assert.equal(h.sent.length, 1);
   assert.equal(state(h).pending.length, 0);
 });
+
+
+test('invalid station telemetry resumes at the next five-minute poll without skipping another interval', async () => {
+  // Reconciled synthetic regression from the original checkout; retain bounded cooldown.
+  const h=harness();
+  h.hook(url=>url.includes('/station/latest')?json({success:true,batterySOC:100,dischargePower:null,
+    lastUpdateTime:new Date(h.clock.time).toISOString()}):undefined);
+  assert((await runMonitor(h.env,h.deps)).includes('measurement_missing_or_invalid'));
+  assert.equal(state(h).apiRetryAt,h.clock.time+300000);
+  h.hook(undefined);h.advance();h.reading(100,400);
+  assert((await runMonitor(h.env,h.deps)).includes('reading_accepted'));assert.equal(h.sent.length,1);
+});

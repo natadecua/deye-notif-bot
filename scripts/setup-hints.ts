@@ -7,6 +7,8 @@ export function setupHint(code: string): string | undefined {
       return 'Check the Deye developer-app credentials and account region privately, then rerun npm run setup. Keep passwords, hashes and raw responses private.';
     case 'no_stations_in_selected_region_or_company':
       return 'Check the selected Deye region, account access and personal/company context, then rerun npm run setup. Do not guess a station ID.';
+    case 'setup_measurement_unavailable':
+      return 'Setup needs numeric batterySOC and non-negative dischargePower. Do not treat null as zero or substitute batteryPower. Check station telemetry and retry npm run setup.';
     case 'measurement_missing_or_invalid':
       return 'Stop setup and consult docs/DEYE-API.md for the station adapter. Missing battery fields must be verified before enabling monitoring.';
     case 'measurements_not_confirmed':

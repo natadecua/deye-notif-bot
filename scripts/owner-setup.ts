@@ -6,6 +6,7 @@ import { validateTelegramSecrets } from '../src/telegram.ts';
 import type { Config, Secrets } from '../src/types.ts';
 import { configurePreferences, type PreferencePrompts } from './preferences.ts';
 import { ownerCandidates } from './telegram-onboarding.ts';
+import {setupTimestampChoices,validateSetupMeasurements} from './setup-checks.ts';
 
 export interface SetupPrompts extends PreferencePrompts { hidden(message: string): Promise<string> }
 export interface SetupServices {
@@ -58,13 +59,11 @@ export async function runOwnerSetup(source: Config, existing: Secrets, p: SetupP
   c.stationId = Number(selected.id);
   const raw = await client.latest();
   p.print('Live station preview; missing fields are displayed as null:'); io.preview(raw);
+  validateSetupMeasurements(raw);
   c.powerUnit = await p.choose('Compare dischargePower with the Deye app or device documentation. Which unit does THIS API value use? Do not guess.',
     [{ name: 'Watts (e.g. 500 means 500 W)', value: 'W' }, { name: 'Kilowatts (e.g. 0.5 means 500 W)', value: 'kW' }]) as Config['powerUnit'];
-  c.timestampMode = await p.choose('Confirm the timestamp format from the preview:', [
-    { name: 'ISO 8601 with explicit Z or ±HH:MM offset', value: 'iso-offset' },
-    { name: 'Numeric Unix seconds (absolute UTC)', value: 'unix-seconds' },
-    { name: 'Numeric Unix milliseconds (absolute UTC)', value: 'unix-milliseconds' },
-  ]) as Config['timestampMode'];
+  c.timestampMode = await p.choose('Confirm the timestamp format from the preview:',
+    setupTimestampChoices(raw.lastUpdateTime)) as Config['timestampMode'];
   const at = parseTimestamp(raw.lastUpdateTime, c.timestampMode);
   p.print(`Timestamp interpreted as ${new Date(at).toISOString()} (UTC). Station timezone metadata: ${String(selected.regionTimezone ?? 'not provided')}.`);
   const reading = normalizeReading(raw, c, io.now());

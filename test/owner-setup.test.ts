@@ -81,13 +81,13 @@ test('changing the Telegram bot or chat requires a new owner pairing instead of 
 });
 
 for (const [reason, raw, expected] of [
-  ['missing measurement', { batterySOC: 80, lastUpdateTime: new Date(BASE_TIME).toISOString() }, 'measurement_missing_or_invalid'],
+  ['missing measurement', { batterySOC: 80, lastUpdateTime: new Date(BASE_TIME).toISOString() }, 'setup_measurement_unavailable'],
   ['ambiguous timestamp', { batterySOC: 80, dischargePower: 500, lastUpdateTime: '2026-10-21 12:00:00' }, 'timestamp_ambiguous'],
   ['stale reading', { batterySOC: 80, dischargePower: 500, lastUpdateTime: new Date(BASE_TIME - 700_000).toISOString() }, 'reading_stale'],
 ] as const) {
   test(`setup stops on ${reason} before preferences, Telegram or persistence`, async () => {
     const source = config({ enabled: false }), before = structuredClone(source), s = services(raw);
-    const h = prompts(['eu', true, '123', 'W', 'iso-offset']);
+    const h = prompts(['eu', true, '123', ...(reason==='missing measurement'?[]:reason==='ambiguous timestamp'?['W']:['W','iso-offset'])]);
     await assert.rejects(runOwnerSetup(source, syntheticSecrets, h.p, s.io), new RegExp(expected));
     assert.deepEqual(source, before); assert.equal(s.messages(), 0); assert.equal(h.remaining.length, 0);
   });
@@ -119,4 +119,30 @@ test('owner setup preserves another webhook, avoids getUpdates and rejects missi
     newSecret: () => { throw new Error('Unexpected synthetic secret generation'); },
   }), /telegram_owner_setup_required/);
   assert.deepEqual(methods, ['getWebhookInfo']); assert.equal(source.telegram?.enabled, false);
+});
+
+
+test('missing setup measurements stop before asking owners to guess units or timestamps', async () => {
+  const source=config(),before=structuredClone(source),h=prompts(['eu',true,'123']);
+  const io=services({batterySOC:80,dischargePower:null,lastUpdateTime:new Date(BASE_TIME).toISOString()});
+  await assert.rejects(runOwnerSetup(source,syntheticSecrets,h.p,io.io),/setup_measurement_unavailable/);
+  assert.deepEqual(source,before);assert.equal(io.messages(),0);
+  assert(!h.asked.some(s=>/Which unit|timestamp format/.test(s)));
+});
+
+test('owner setup offers timestamp modes matching the actual preview with UTC interpretations', async () => {
+  for(const numeric of [false,true]) {
+    const h=prompts(['eu',true,'123','W',numeric?'unix-seconds':'iso-offset',...finish.slice(3)]);
+    const choose=h.p.choose;
+    h.p.choose=async(message,choices)=>{
+      if(message.includes('timestamp format')) {
+        assert.deepEqual(choices.map(x=>x.value),numeric?['unix-seconds','unix-milliseconds']:['iso-offset']);
+        for(const choice of choices)assert.match(choice.name,/→ .*Z \(UTC\)/);
+      }
+      return choose(message,choices);
+    };
+    await runOwnerSetup(config(),syntheticSecrets,h.p,services({batterySOC:80,dischargePower:500,
+      lastUpdateTime:numeric?BASE_TIME/1000:new Date(BASE_TIME).toISOString()}).io);
+    assert.equal(h.remaining.length,0);
+  }
 });
