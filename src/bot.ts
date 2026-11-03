@@ -1,3 +1,4 @@
+import {cachedBatteryStatus} from './battery-status.ts';
 import { defaults, type Config, type Dependencies, type Env } from './types.ts';
 import { validateConfig } from './config.ts';
 import { batteryLoadSummary, decodeState } from './alerts.ts';
@@ -48,7 +49,7 @@ async function payload(request: Request): Promise<Record<string, unknown>> {
 async function status(env: Env, c: Config, now: number, brief = false, bot?: BotState): Promise<string> {
   const state = decodeState(await env.STATE.get('monitor:v1'), c);
   if (brief) return renderBriefSnapshot(state, c, now, bot);
-  const r = state.latestReading;
+  const r = cachedBatteryStatus(state);
   const weather = weatherStatusText(state.weather, c, now);
   const grid=c.gridImport?.enabled?gridStatus(c,state.gridImport,now,await gridSourceKey(c,env)):'';
   const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}\n\n${recapPreferencesText(c)}\n\n${quietPreferencesText(c)}` + (grid?`\n\n${grid}`:'') + (weather ? `\n\n${weather}` : '');
@@ -56,7 +57,7 @@ async function status(env: Env, c: Config, now: number, brief = false, bot?: Bot
   const ageMs = now - r.at, age = Math.floor(ageMs / 1000);
   const quality = ageMs < 0 || ageMs > c.maxAgeSeconds * 1000 ? 'stale — do not treat this as current' : 'within the configured freshness limit';
   const profiles = chargingProfileReference(c.ev);
-  return `🔋 Battery status\n\nCharge: ${r.soc}%\nBattery discharge: ${kilowatts(r.dischargeWatts)}\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\nDeye Cloud data may be delayed.` + context;
+  return `🔋 Battery status\n\nCharge: ${r.soc===undefined?'unavailable':`${r.soc}%`}\nBattery discharge: ${r.dischargeWatts===undefined?'unavailable':kilowatts(r.dischargeWatts)}\n${batteryLoadSummary(c)}${profiles ? `\n\n${profiles}` : ''}\n\nReading: ${displayTime(r.at, c)}\nData age: ${age} seconds (${quality})\nDeye Cloud data may be delayed.` + context;
 }
 export async function handleTelegramRequest(request: Request, env: Env, deps: Dependencies = defaults): Promise<Response> {
   const ok = () => new Response('OK');

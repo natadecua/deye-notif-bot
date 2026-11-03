@@ -1,3 +1,4 @@
+import {cachedBatteryStatus,partialBatteryNote} from './battery-status.ts';
 import { kilowatts } from './power.ts';
 import type { Config, State } from './types.ts';
 import { chargingSummary, type BotState } from './bot-state.ts';
@@ -29,6 +30,7 @@ export function cachedUpdateStatus(state: State, c: Config, now: number, brief =
       text += brief ? '\nUpdates: waiting for a cached reading.' : '\nData updates: Waiting for a cached reading.';
     }
   }
+  const partial=partialBatteryNote(state);if(!brief&&partial)text+='\n'+partial;
   return brief ? text : text + '\nThis is cached status, not a live connection check; /status does not poll Deye.';
 }
 export function renderBriefSnapshot(state: State, c: Config, now: number, bot?: BotState,
@@ -38,13 +40,13 @@ export function renderBriefSnapshot(state: State, c: Config, now: number, bot?: 
   const formatTime = (at: number) => {
     try { return displayTimeInZone(at, zone); } catch { return 'time unavailable'; }
   };
-  const r = state.latestReading;
+  const r = cachedBatteryStatus(state);
   const lines = [options.kind === 'recap' ? '🔋 Battery snapshot · daily recap' : '🔋 Battery status · brief'];
   if (r) {
     const age = now - r.at;
     const quality = age < 0 ? 'future-dated — not current' : age > c.maxAgeSeconds * 1000 ?
       'stale — not current' : 'within freshness limit';
-    lines.push(`Charge: ${r.soc}% · Battery discharge: ${kilowatts(r.dischargeWatts)}`,
+    lines.push(`Charge: ${r.soc===undefined?'unavailable':`${r.soc}%`} · Battery discharge: ${r.dischargeWatts===undefined?'unavailable':kilowatts(r.dischargeWatts)}`,
       `Reading: ${formatTime(r.at)}`, `Data age: ${Math.floor(age / 1000)} s (${quality})`);
   } else lines.push('No cached reading yet.');
   lines.push('Load breakdown: unknown.', cachedUpdateStatus(state, c, now, true, zone));

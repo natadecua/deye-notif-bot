@@ -1,8 +1,9 @@
+import {cachedBatteryStatus} from './battery-status.ts';
 import { alertText, decodeState, expirePending, isBatteryAlert, resetAfterGap, resetDischargeConfirmation, transition } from './alerts.ts';
 import { notificationEnabled, validateConfig } from './config.ts';
 import { DeyeClient } from './deye.ts';
 import { errorCode, SafeError } from './errors.ts';
-import { normalizeReading } from './reading.ts';
+import { normalizeStatusReading } from './reading.ts';
 import { sendTelegram, validateTelegramSecrets } from './telegram.ts';
 import { defaults, type Dependencies, type Env } from './types.ts';
 import { BOT_KEY, activeChargingSession, decodeBotState } from './bot-state.ts';
@@ -66,8 +67,14 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   else try {
     client=new DeyeClient(c,env,env.STATE,deps);
     const raw = await client.latest();stationFetched=true;
-    const reading = normalizeReading(raw, c, deps.now());
-    const outcome = transition(state, reading, c, deps.now());
+    const cached=cachedBatteryStatus(state);
+    const statusReading=normalizeStatusReading(raw,c,deps.now());
+    const olderThanStatus=!!cached&&statusReading.at<cached.at;
+    if(!olderThanStatus)state.batteryStatus=statusReading;
+    const {at,soc,dischargeWatts}=statusReading;
+    if(soc===undefined||dischargeWatts===undefined)throw new SafeError('measurement_missing_or_invalid');
+    const reading={at,soc,dischargeWatts};
+    const outcome = olderThanStatus?'out_of_order':transition(state, reading, c, deps.now());
     observation = outcome === 'accepted' ? { kind: 'accepted', at: reading.at } : { kind: outcome };
     events.push(`reading_${outcome}`);
     // Don't send pending recommendations based on out-of-order/invalid/stale data.
