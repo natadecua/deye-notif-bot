@@ -1,3 +1,4 @@
+import {validateReserve} from './reserve.ts';
 import type { Alert, Config, NotificationPreferences } from './types.ts';
 import { SafeError } from './errors.ts';
 import { validateChargingProfiles } from './profiles.ts';
@@ -48,6 +49,7 @@ export function validateConfig(raw: unknown): Config {
   validateDailyRecap(c.dailyRecap, c.daytimeDischarge?.timeZone);
   validateQuietHours(c.quietHours, c);
   validateGridConfig(c.gridImport);
+  validateReserve(c.reserve);
   if (c.telegram !== undefined && (!c.telegram || Array.isArray(c.telegram) ||
       typeof c.telegram.enabled !== 'boolean')) throw new SafeError('telegram_preferences_invalid');
   return c;

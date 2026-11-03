@@ -137,6 +137,7 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
     dailyRecap: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', hour: 17, minute: 35, scheduleConfirmed: true },
     quietHours: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', startMinute: 1320, endMinute: 360,
       categories: { full: true, discharge: true, health: true, recap: true }, suppressionConfirmed: true },
+    reserve:{enabled:true,warnSoc:13,rearmSoc:15,minimumMinutes:5,allHoursConfirmed:true},
     gridImport:{enabled:true,thresholdWatts:1000,rearmWatts:100,minimumMinutes:10,point:'TotalGridPower',
       importSign:'positive',referenceConfirmed:true,allHoursConfirmed:true},
     weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true },
@@ -148,6 +149,7 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
     for (const kind of ['status', 'recap'] as const) {
       const text = renderBriefSnapshot(state, { ...context, enabled }, now, bot, { kind });
       assert.match(text, /Reported profile:/);
+      assert.match(text,/Reserve: \/reserve/);
       assert.match(text, enabled ? /Health notices: on \(configured\)/ : /Health notices: paused \(configured on\)/);
       assert.match(text, enabled ? /Recap: on \(configured\)/ : /Recap: paused \(configured on\)/);
       assert.match(text, enabled ? /Quiet hours: on \(configured\)/ : /Quiet hours: paused \(configured on\)/);

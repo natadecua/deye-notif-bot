@@ -29,7 +29,7 @@ export function decodeBotState(raw: string | null, c: Config): BotState {
   if (s.context !== context) return decodeBotState(null, c);
   if (s.overrides !== undefined) {
     if (!s.overrides || typeof s.overrides !== 'object' || Array.isArray(s.overrides) ||
-        Object.keys(s.overrides).some(k => !['notifications', 'fullSoc', 'fullRearmSoc', 'dischargeWatts', 'dischargeRearmWatts', 'dischargeMinutes','gridWatts','gridMinutes'].includes(k))) {
+        Object.keys(s.overrides).some(k => !['notifications', 'fullSoc', 'fullRearmSoc', 'dischargeWatts', 'dischargeRearmWatts', 'dischargeMinutes','gridWatts','gridMinutes','gridRecovery','reserve'].includes(k))) {
       throw new SafeError('bot_state_invalid');
     }
     try { validateConfig(resolveSettings(c, s.overrides)); } catch { throw new SafeError('bot_state_invalid'); }

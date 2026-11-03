@@ -1,3 +1,6 @@
+import {gridMenu} from './grid-menu.ts';
+import {reserveMenu} from './reserve-menu.ts';
+import {reserveStatus} from './reserve.ts';
 import { defaults, type Config, type Dependencies, type Env } from './types.ts';
 import { validateConfig } from './config.ts';
 import { batteryLoadSummary, decodeState } from './alerts.ts';
@@ -19,7 +22,7 @@ import { settingsMenu, SETTINGS_MENU_EXPIRED } from './settings-menu.ts';
 import { kilowatts } from './power.ts';
 import {gridStatus,gridSourceKey} from './grid-runtime.ts';
 
-const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/discharge_minutes MINUTES — daytime cloud-dip tolerance (1–120)\n/grid_kw KILOWATTS — grid threshold after verified setup\n/grid_minutes MINUTES — sustained grid import (1–120)\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
+const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/discharge_minutes MINUTES — daytime cloud-dip tolerance (1–120)\n/grid_kw KILOWATTS — grid threshold after verified setup\n/grid_minutes MINUTES — sustained grid import (1–120)\n/grid — grid threshold, duration and recovery buttons\n/reserve — low-charge warning settings\n/reserve_set WARN REARM MINUTES — preview a reserve rule\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
 function secretMatches(actual: string | null, expected: string | undefined): boolean {
@@ -51,7 +54,7 @@ async function status(env: Env, c: Config, now: number, brief = false, bot?: Bot
   const r = state.latestReading;
   const weather = weatherStatusText(state.weather, c, now);
   const grid=c.gridImport?.enabled?gridStatus(c,state.gridImport,now,await gridSourceKey(c,env)):'';
-  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}\n\n${recapPreferencesText(c)}\n\n${quietPreferencesText(c)}` + (grid?`\n\n${grid}`:'') + (weather ? `\n\n${weather}` : '');
+  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}\n\n${recapPreferencesText(c)}\n\n${quietPreferencesText(c)}\n\n${reserveStatus(c)}` + (grid?`\n\n${grid}`:'') + (weather ? `\n\n${weather}` : '');
   if (!r) return '🔋 Battery status\n\nNo cached reading yet.' + context;
   const ageMs = now - r.at, age = Math.floor(ageMs / 1000);
   const quality = ageMs < 0 || ageMs > c.maxAgeSeconds * 1000 ? 'stale — do not treat this as current' : 'within the configured freshness limit';
@@ -102,17 +105,31 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (state.used >= 48) return ok();
     const c = validateConfig(resolveSettings(base, state.overrides));
     let reply: string, offerProfiles = false, offerNavigation = false;
-    const ui=settingsMenu(c,now);
+    const ui=settingsMenu(c,now),gu=gridMenu(c,now,env.GRID_DEVICE_SN),ru=reserveMenu(c,now);
     let settingsMarkup: Parameters<typeof sendTelegram>[3];
+    const isGrid=!!callback&&(callback.data as string).startsWith('grid:');
+    const isReserve=!!callback&&(callback.data as string).startsWith('rs:');
     const isSettings=!!callback&&(callback.data as string).startsWith('pref:');
     const isNavigation = !!callback && (callback.data as string).startsWith('view:');
     const navigation = isNavigation ? navigationCommand(callback!.data as string, now) : undefined;
     if (navigation) command = navigation;
     const reports = profileReports(c, state, now);
     const button = callback ? /^charging:(yes|no):(\d{1,16})$/.exec(callback.data as string) : null;
-    const selectedProfile = callback && !isNavigation && !isSettings && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
+    const selectedProfile = callback && !isNavigation && !isSettings && !isGrid && !isReserve && state.used < 47 ? await reports.selection(callback.data as string) : undefined;
     if (state.used === 47) {
       reply = 'Daily command limit reached. Try again after 00:00 UTC. Scheduled battery monitoring continues.';
+    } else if(isGrid){
+      const a=await gu.action(callback!.data as string);
+      if(a.kind==='invalid')reply=SETTINGS_MENU_EXPIRED;
+      else if(a.kind==='cancel')reply='Change cancelled. Grid preferences unchanged.';
+      else if(a.kind==='open'){reply=applyTelegramCommand(c,'/settings').reply;settingsMarkup=await gu.menu();}
+      else if(a.kind==='pick'){reply=`${a.key==='k'?`Set grid threshold to ${kilowatts(a.value!)}? Current: ${kilowatts(c.gridImport?.enabled?c.gridImport.thresholdWatts:0)}.`:a.key==='m'?`Set grid duration to ${a.value} minutes? Current: ${c.gridImport?.enabled?c.gridImport.minimumMinutes:0} minutes.`:`Turn grid recovery notices ${a.value?'on':'off'}?`}\nConfirm to save this grid preference. It applies at all hours and is separate from battery discharge. Recovery notices require an accepted warning and fresh low-import readings. Equipment changes remain manual.`;settingsMarkup=a.markup;}
+      else{const result=applyTelegramCommand(c,a.command!);if(result.changed)state.overrides=settingsOverrides(result.config);reply=result.reply;}
+    } else if(isReserve){
+      const a=await ru.action(callback!.data as string);
+      if(!a)reply=SETTINGS_MENU_EXPIRED;
+      else if(a.kind==='cancel')reply='Reserve setup cancelled. Preferences unchanged.';
+      else{state.overrides={...settingsOverrides(c),reserve:a.policy};reply=a.reply+'\nSaved; next scheduled readings begin fresh reserve confirmation.';}
     } else if (isSettings) {
       const action=await ui.action(callback!.data as string);
       if(action.kind==='invalid')reply=SETTINGS_MENU_EXPIRED;
@@ -151,6 +168,12 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     } else if (command === '/help' || command === '/start') {
       reply = help;
       offerNavigation = true;
+    } else if(command==='/grid'){
+      reply=c.gridImport?.enabled?'⚡ Grid preferences: use a button, review the preview and confirm. Grid use and battery discharge are separate rules.': 'Grid alerts are off or unverified. Complete private source verification and grid setup first.';settingsMarkup=await gu.menu();
+    } else if(command==='/reserve'){reply=reserveStatus(c)+'\nUse /reserve off to disable. Confirming a complete setup accepts all-hours low-charge notices. Thresholds do not guarantee overnight energy.';
+    } else if(command.startsWith('/reserve_set')){
+      const preview=await ru.preview(command);reply=preview?.reply??'Enter /reserve_set WARN REARM MINUTES using whole SOC percentages, a higher re-arm value and 1–120 minutes. No values have been selected for you.';settingsMarkup=preview?.markup;
+    } else if(command==='/reserve off'){state.overrides={...settingsOverrides(c),reserve:{enabled:false}};reply='House reserve warning off. The next running scheduled tick clears only reserve metadata/events.';
     } else if (command === '/settings reset') {
       delete state.overrides;
       reply = 'Deployment preferences restored. They apply on the next scheduled reading.';
@@ -160,6 +183,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
       reply = result.reply;
       if(command==='/settings'){
         settingsMarkup=await ui.menu();
+        const gridEntry=await gu.entry();if(gridEntry)settingsMarkup={inline_keyboard:[...(settingsMarkup?.inline_keyboard??[]),[gridEntry]]};
         reply+='\n\nChoose a house battery threshold below, then confirm. For another value: /discharge_kw 0.5. Menus expire after 30 minutes or settings changes.';
       }
     }
@@ -173,7 +197,7 @@ export async function handleTelegramRequest(request: Request, env: Env, deps: De
     if (callback) {
       try {
         await jsonPost(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
-          { callback_query_id: callback.id, text: isSettings ? 'Settings request processed. Check the bot reply.' : isNavigation ? 'Menu request processed. Check the bot reply.' :
+          { callback_query_id: callback.id, text: isSettings||isGrid||isReserve ? 'Settings request processed. Check the bot reply.' : isNavigation ? 'Menu request processed. Check the bot reply.' :
             'Report processed. Check the bot reply.' }, {}, deps, 'telegram', 1);
       } catch { /* Acknowledgement failure must not suppress the ordinary confirmation reply. */ }
     }

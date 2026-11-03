@@ -1,3 +1,4 @@
+import {syncReserve,reserveMessage} from './reserve.ts';
 import { alertText, decodeState, expirePending, isBatteryAlert, resetAfterGap, resetDischargeConfirmation, transition } from './alerts.ts';
 import { notificationEnabled, validateConfig } from './config.ts';
 import { DeyeClient } from './deye.ts';
@@ -13,7 +14,7 @@ import type { HealthObservation } from './data-health.ts';
 import { recapMessage, syncRecap } from './recap-outbox.ts';
 import { advanceQuietHours, type QuietHoursState } from './quiet-hours.ts';
 import { resolveSettings } from './telegram-settings.ts';
-import {syncGrid,gridMessage} from './grid-runtime.ts';
+import {syncGrid,gridMessage,settleGrid} from './grid-runtime.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -54,8 +55,10 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   const backoff = now < state.apiRetryAt;
   const healthWork = c.dataHealth?.enabled || state.dataHealth !== undefined || state.pending.some(a => a.kind === 'health');
   const recapWork = c.dailyRecap?.enabled || state.dailyRecap !== undefined || state.pending.some(a => a.kind === 'recap');
-  const gridWork=c.gridImport?.enabled||state.gridImport!==undefined||state.pending.some(a=>a.kind==='grid');
-  if (backoff && !healthWork && !recapWork && !quietWork && !gridWork) {
+  const reserveWork=c.reserve?.enabled||state.reserve!==undefined||state.pending.some(a=>a.kind==='reserve');
+  let reserveReading:import('./types.ts').Reading|undefined;
+  const gridWork=c.gridImport?.enabled||state.gridImport!==undefined||state.pending.some(a=>a.kind==='grid'||a.kind==='grid_recovered');
+  if (backoff && !healthWork && !recapWork && !quietWork && !gridWork && !reserveWork) {
     if (cancelledByPreference) await env.STATE.put('monitor:v1', JSON.stringify(state));
     return ['api_backoff'];
   }
@@ -72,6 +75,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     events.push(`reading_${outcome}`);
     // Don't send pending recommendations based on out-of-order/invalid/stale data.
     eligibleToSend = outcome !== 'out_of_order';
+    if(eligibleToSend)reserveReading=reading;
     // Drop delayed messages whose triggering condition no longer holds, even if
     // hysteresis hasn't rearmed yet. Do not send outdated amperage advice.
     if (eligibleToSend) {
@@ -94,6 +98,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     events.push(errorCode(error));
   }
   if(gridWork){const code=await syncGrid(state,c,env,client,!backoff&&stationFetched,deps);if(code)events.push(code);}
+  if(reserveWork){const code=syncReserve(state,c,reserveReading,deps.now());if(code)events.push(code);}
   const healthError = healthWork ? syncHealth(state, c, observation, deps.now()) : undefined;
   if (healthError) events.push(healthError);
   const recapError = recapWork ? syncRecap(state, c, deps.now()) : undefined;
@@ -115,7 +120,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   let changed = false;
   // No admission after this checkpoint: expiry can only remove original events.
   const expireAfterWait = (at: number) => {
-    if (!quietWork&&!gridWork) return;
+    if (!quietWork&&!gridWork&&!reserveWork) return;
     const before = state.pending.length;
     expirePending(state, at);
     for (const pending of [...state.pending]) {
@@ -133,9 +138,12 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     if (!state.pending.some(p => p.id === a.id)) continue;
     if (a.nextAttemptAt > deps.now()) continue;
     let informationalText: string | undefined;
-    if(a.kind==='grid'){
+    if(a.kind==='grid'||a.kind==='grid_recovered'){
       informationalText=gridMessage(state,c,a,deps.now(),bot);
       if(!informationalText){if(deps.now()>=a.expiresAt){state.pending=state.pending.filter(p=>p!==a);changed=true;}continue;}
+    } else if(a.kind==='reserve'){
+      if(!reserveReading)continue;
+      informationalText=reserveMessage(state,c,a,deps.now());if(!informationalText)continue;
     } else if (a.kind === 'health') {
       informationalText = healthMessage(state, c, a, deps.now());
       if (!informationalText) continue;
@@ -152,7 +160,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       changed = true;
       continue;
     }
-    if (a.kind!=='grid'&&muted?.[a.kind]) continue;
+    if (a.kind!=='grid'&&a.kind!=='grid_recovered'&&a.kind!=='reserve'&&muted?.[a.kind]) continue;
     if (a.kind === 'discharge' && refreshWeather) {
       state.weather = await fetchWeather(state.weather as WeatherCache, c, deps);
       refreshWeather = false;
@@ -186,6 +194,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
         { text: "Yes, I'm charging", callback_data: `charging:yes:${a.reading.at}` },
         { text: "No, I'm not", callback_data: `charging:no:${a.reading.at}` },
       ]] } : undefined);
+      if(a.kind==='grid'||a.kind==='grid_recovered')settleGrid(state,c,a);
       if (a.kind === 'health') settleHealth(state, c, a, 'accepted', deps.now());
       state.pending = state.pending.filter(p => p.id !== a.id);
       events.push('telegram_sent');
@@ -207,7 +216,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
           state.pending = state.pending.filter(p => p.id !== a.id);
           events.push('notification_abandoned');
         }
-        if(a.kind==='grid'&&a.nextAttemptAt>=a.expiresAt){state.pending=state.pending.filter(p=>p!==a);events.push('notification_abandoned');}
+        if((a.kind==='grid'||a.kind==='grid_recovered'||a.kind==='reserve')&&a.nextAttemptAt>=a.expiresAt){state.pending=state.pending.filter(p=>p!==a);events.push('notification_abandoned');}
       }
     }
   }
