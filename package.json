@@ -11,6 +11,7 @@
   "scripts": {
     "setup": "tsx scripts/cli.ts setup",
     "setup:demo": "tsx scripts/setup-demo.ts",
+    "alerts:demo": "tsx scripts/alert-rehearsal-demo.ts",
     "preview": "tsx scripts/cli.ts preview",
     "telegram:test": "tsx scripts/cli.ts telegram-test",
     "telegram:doctor": "tsx scripts/cli.ts telegram-doctor",
