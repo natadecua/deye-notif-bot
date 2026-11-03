@@ -1,0 +1,22 @@
+name: User-flow improvement
+description: Suggest a clearer setup, notification or Telegram interaction.
+body:
+  - type: textarea
+    id: journey
+    attributes:
+      label: What should the owner be able to do?
+      description: Describe one concrete user journey and what makes it awkward today.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What would a successful result look like?
+      description: Use synthetic examples. This project provides notifications and manual advice; it does not control equipment.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Relevant official read-only API documentation, if applicable
+      description: For new measurements/detection, link the source documentation. Never include credentials or private installation URLs.

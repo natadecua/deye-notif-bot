@@ -2,7 +2,9 @@
 
 Audit date: **2026-10-22**. Original core audited at commit `3819d75`; notification-switch/profile implementation status updated below.
 
-**Current status:** the original notification-only core passed 65 unit/functional tests plus one workerd test and hosted CI. With the laptop notification/profile wizard and offline advanced trigger/freshness settings now implemented, local validation passes **97 unit/functional tests plus two workerd tests**. No live Deye/Telegram integration or Cloudflare deployment has been tested. The Telegram onboarding, session tracking and planner below remain expanded specifications, **not implemented functionality**.
+**Historical baseline:** the original notification-only core passed 65 unit/functional tests plus one workerd test and hosted CI. The laptop notification/profile wizard and offline advanced trigger/freshness slice then passed **97 unit/functional tests plus two workerd tests**. The later command slice is summarized below. The expanded planner remains a specification, and no live Deye/Telegram integration or Cloudflare deployment has been validated by this development session.
+
+**Later implementation slice (2026-10-22):** optional owner-authorized commands, cached status/settings, a local pairing wizard, command-menu registration and six-hour manual charging reports/yes-no buttons are now implemented in the proposed PR. These do not implement direct EV detection, automatic profile recommendations or the planner. See [bot behavior](TELEGRAM-BOT.md), [iteration backlog](IMPROVEMENT-LOOP.md) and the latest validation record for current evidence; the earlier counts above are historical.
 
 ## 1. Product goal and boundaries
 
@@ -16,7 +18,7 @@ Initial example configuration, based on reported capabilities (not global defaul
 - Available car settings reported by the owner: **8 A, 13 A, MAX**.
 - Owner-reported MAX is approximately **7 kW**, not a verified current or measured power.
 - The car supports scheduled charging.
-- Selected objective for this example: **use solar first, allowing grid charging if needed before departure**. Other installations choose their own objective.
+- Latest owner objective for this example: **solar-first EV charging by day; house-only battery use at night**. Overnight EV charging is a temporary exception only for an explicitly reported next-day need. Any grid-assisted charging policy needs its own owner choice. Other installations choose their own objective.
 - Phase configuration, operating voltage, charger minimum/maximum specifications, exact EV/charger model, any read-only telemetry API and household system details remain unconfirmed.
 
 At a **confirmed 230 V single-phase** installation, approximate AC input power is 1.84 kW at 8 A and 2.99 kW at 13 A. At 240 V those estimates are 1.92 and 3.12 kW. These are conditional electrical calculations, not measurements of the owner's installation. The bot must use each installation's actual supported choices rather than generic 3.5/7 kW presets. Never infer MAX amperage from an approximate 7 kW label. Balanced three-phase calculations require explicit confirmation and use all three phases.
@@ -49,7 +51,7 @@ Keep connection secrets separate from non-secret preferences, runtime alert stat
 | Token cache/expiry, bounded retries and backoff | REST client and regression tests, including HTTP 408 red/green history | Live regional authorization/schema still untested. |
 | Freshness, distinct timestamps, missing values, long gaps, persistence | Reading/state-machine/monitor tests | Distributed KV and Telegram cannot provide exactly-once delivery. |
 | Guided setup, station selection, units and preview | `npm run setup`, terminal prompts in `scripts/cli.ts` | Technical laptop wizard, not friendly Telegram onboarding. |
-| Configurable full/discharge thresholds, freshness and EV hints | Terminal wizard + ignored local configuration | Independent full/discharge switches are now supported locally; in-chat settings remain planned. |
+| Configurable full/discharge thresholds, freshness and EV hints | Terminal wizard + ignored local configuration; optional owner bot settings | In-chat switches/trigger/re-arm edits are implemented; profile/electrical/freshness setup still uses the laptop wizard. |
 | License, contribution guidance, synthetic fixtures, CI and troubleshooting | MIT, CONTRIBUTING.md, AGENTS.md, README.md, tests | Original core is implemented, not a completed live installation. |
 
 Current normalized runtime readings retain only timestamp, house-battery SOC and discharge watts. Raw station preview also shows generation/consumption/charge fields, but the runtime does not retain them for a planner or historical analysis. Optional device discovery exists; an automatic device adapter is not implemented.
@@ -60,15 +62,17 @@ Current normalized runtime readings retain only timestamp, house-battery SOC and
 | --- | --- |
 | Full-battery and sustained-discharge messages | Implemented, synthetic validation only |
 | Independent full/discharge notification selection | Implemented in the laptop preferences/setup wizard |
-| Telegram onboarding/settings buttons | Not implemented |
+| Telegram onboarding/settings commands and charging buttons | Optional local pairing, webhook/menu registration and owner settings implemented; richer in-chat onboarding remains planned |
 | Quiet hours, local timezone scheduling and daily recap | Not implemented |
+| Daytime-only battery-discharge alerts | Opt-in fixed local window and elapsed sample duration implemented; Batangas example is Asia/Manila, 06:00–18:00, 15 minutes; manual setup/deployment still required |
 | Custom discrete current/power profiles, including 8 A / 13 A / MAX | Implemented for setup and message display; MAX power is explicitly entered |
-| Manual charging-session acknowledgement and expiry | Not implemented |
+| Manual charging-session acknowledgement and expiry | Implemented with a six-hour expiry, manual evidence and optional reported profile ID |
 | Confirmed automatic EV charging detection | No data source established; not implemented |
 | “Good time to start”, “reduce”, “pause” and “resume” recommendations | Not implemented |
 | Car-target/house-battery-reserve handling | Not implemented |
 | History collection, learned household baseline and solar pattern | Not implemented |
 | Weather-adjusted charging windows and departure grid fallback | Not implemented |
+| Optional cloud/radiation context on discharge alerts | Opt-in Open-Meteo client/cache and offline setup implemented; hourly model forecasts do not constitute an EV/solar charging plan |
 
 ## 4. Proposed onboarding experience
 
@@ -109,11 +113,11 @@ These buttons **record what the user did**; they do not control the vehicle. Dis
 
 ### Step C: choose the objective and constraints
 
-Default for this owner: **solar first, grid allowed before departure**.
+Default for this owner: **solar first by day, battery reserved for the house at night**. A specific “car needed tomorrow” report may open a temporary overnight-planning exception, subject to the agreed household reserve. Ordinary charging-status reports, available battery headroom and weather forecasts must not grant that exception. Its energy/departure goal, expiry and any grid-assisted charging preference require explicit owner input; this flow is not implemented.
 
 Collect car-available days/windows (e.g. 09:00–16:00), next departure time and the requested energy to add. If actual EV SOC/capacity is unavailable, allow a user-entered energy goal rather than fabricating a car SOC. Clearly distinguish energy drawn at the charger from energy stored in the car; losses and reduced actual charging rates affect completion estimates.
 
-Collect the house-battery reserve, desired house-battery SOC by evening, and whether house battery or EV receives priority while solar is limited. A low reserve is a boundary, not a daily target. No user-specific reserve or evening target has been chosen yet.
+Collect the house-battery reserve, desired house-battery SOC by evening, and whether house battery or EV receives priority while solar is limited. A low reserve is a boundary, not a daily target. The owner reported a 32 kWh battery, a 13% grid-fallback setting and approximately 40% remaining on a normal morning. Short daytime cloud dips are acceptable; nighttime battery use is for the house, with EV charging only as an explicit exception for the next day's need. Morning SOC is not overnight consumption. Batangas City/Asia-Manila timezone and a 15-minute daytime tolerance are known; sunset SOC, useful-solar hours, desired morning target and warning margin still need confirmation. No personal reserve threshold has been chosen. The [reserve-alert proposal](RESERVE-ALERTS.md) remains unimplemented beyond the separate daytime-discharge slice.
 
 ### Step D: location and system
 

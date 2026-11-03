@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { configureNotifications, configureChargingProfiles, configurePreferences,
+import { configureNotifications, configureChargingProfiles, configurePreferences, preferencesSummary,
   type PreferencePrompts } from '../scripts/preferences.ts';
 import { config } from './helpers.ts';
 
@@ -61,6 +61,8 @@ test('a user without an EV only sees notification choices and no electrical ques
   assert.equal(h.remaining.length, 0);
   assert.equal(original.ev.enabled, false);
   assert(h.printed.join('\n').includes('Battery supplying power: off'));
+  assert.match(h.printed.join('\n'), /Battery notifications do not require EV hints, weather or Telegram commands/);
+  assert.match(h.printed.join('\n'), /npm run deploy/);
 });
 test('electrical/profile confirmation is required and cancellation leaves the source config unchanged', async () => {
   const original = config();
@@ -122,4 +124,40 @@ test('offline preferences can edit alert thresholds and freshness limits without
   assert.equal(updated.dischargeWatts, 500);
   assert.equal(updated.dischargeRearmWatts, 150);
   assert.equal(h.remaining.length, 0);
+});
+
+test('enabled command summary describes local configuration and pending manual activation, not live readiness', () => {
+  const source = config({ telegram: { enabled: true } }), before = structuredClone(source);
+  const text = preferencesSummary(source);
+  assert.match(text, /Telegram commands: enabled in local configuration/);
+  for (const command of ['/help', '/status', '/settings', 'npm run telegram:setup', 'npm run secrets:upload',
+    'npm run deploy', 'npm run telegram:webhook']) assert(text.includes(command), `Missing next step: ${command}`);
+  assert.match(text, /does not verify owner pairing, secret upload, deployment, webhook registration or message receipt/);
+  assert.match(text, /confirm.*\/status.*owner chat/i);
+  assert.doesNotMatch(text, /settings menus are not active|commands are ready|webhook is registered/i);
+  assert.deepEqual(source, before);
+});
+
+for (const telegram of [undefined, { enabled: false }]) {
+  test(`commands ${telegram ? 'disabled' : 'omitted'} keep battery notifications usable without pairing`, () => {
+    const text = preferencesSummary(config({ telegram }));
+    assert.match(text, /Telegram commands: off in local configuration/);
+    assert.match(text, /optional.*npm run telegram:setup/i);
+    assert.match(text, /Battery notifications do not require EV hints, weather or Telegram commands/);
+    assert.match(text, /npm run deploy/);
+    assert.doesNotMatch(text, /npm run telegram:webhook|confirm.*\/status|settings menus are not active/i);
+  });
+}
+
+test('summary separates configured forecasts from future planning and omits synthetic installation identifiers', () => {
+  // Synthetic identifiers/location, never actual owner configuration or credentials.
+  const source = config({ stationId: 987654321, telegram: { enabled: true }, weather: {
+    enabled: true, latitude: 10.1234, longitude: 20.4567, nonCommercialConfirmed: true,
+  } });
+  const before = structuredClone(source), text = preferencesSummary(source);
+  assert.match(text, /Weather context: on.*Open-Meteo/);
+  assert.match(text, /Forecast charging plans and overnight EV exceptions are not implemented/);
+  assert.match(text, /Manual EV hints: off/);
+  assert.doesNotMatch(text, /987654321|10\.1234|20\.4567/);
+  assert.deepEqual(source, before);
 });

@@ -1,21 +1,45 @@
-name: Local validation
-on: [push, pull_request]
+name: Validation
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
+concurrency:
+  group: validation-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+env:
+  WRANGLER_SEND_METRICS: 'false'
 jobs:
   test:
+    name: Checks (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: '22'
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
-      - run: npm run check
-      - run: npm test
-      - run: npm run test:runtime
-      - run: npm run test:mock
-      - run: npm run build
-        env:
-          WRANGLER_SEND_METRICS: 'false'
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run check
+      - name: Unit and integration tests
+        run: npm test
+      - name: Workers runtime tests (synthetic services)
+        run: npm run test:runtime
+      - name: Synthetic notification demonstration
+        run: npm run test:mock
+      - name: Wrangler build dry run
+        run: npm run build

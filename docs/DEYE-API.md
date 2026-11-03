@@ -2,6 +2,8 @@
 
 Reviewed **2026-10-21**. Public schemas/samples were retrieved; **no authenticated installation was available**. “Verified” here means confirmed against those published artifacts, not a successful live request.
 
+Optional solar/home/grid context was reassessed on **2026-10-26** against all three current regional schemas, the official rendered station/device documentation and client samples. Field names/types still do not establish units, direction, metering scope, missing-value behavior or per-field freshness. The [field-level evidence and implementation gates](MEASURED-CONTEXT.md) keep this context unavailable rather than applying the confirmed battery-discharge scale to unrelated measurements. No optional measurement adapter or fixture claiming verified semantics was added.
+
 ## Sources and concrete findings
 
 - [REST documentation](https://developer.deyecloud.com/api). Its public SPA loads Swagger v2 schemas at `https://{regional-developer-host}/v2/api-docs`.
@@ -50,3 +52,15 @@ The read-only `DeyeClient.read` allowlist supports `/device/measurePoints` and `
 Do not auto-enable a guessed device mapping. A future device adapter should have an explicit device selection, verified point names, SOC scale, units, positive discharge direction, timestamp semantics, battery aggregation policy and synthetic regression tests. Add a sanitised/consented schema example before claiming live support. For now, a station that fails the strict adapter cannot be monitored with v1 without such an extension.
 
 No custom-notification webhook was verified in the reviewed sources. The design polls. The REST client allowlist omits every inverter/charger control, order, configuration and strategy operation.
+
+## Usage monitoring and official AI skills (2026-11-02)
+
+The owner supplied Deye's Usage Monitoring announcement: quota overview/forecast, rolling QPM, daily trends, endpoint/status distribution and recent calls. The announcement says monitoring-only with enforcement not yet active; that is a dated provider statement, not a permanent guarantee. Check the owner's authenticated Usage page for actual balances and current terms. No authenticated usage-dashboard balance was read in this session.
+
+Official sources: [Deye skills repository](https://github.com/DeyeCloudDevelopers/deyecloud-skills), [portal skills](https://developer.deyecloud.com/skills) and [best practices](https://developer.deyecloud.com/best-practices). The current portal bundle reports v261030; the GitHub main copies inspected reported v261019. All three official skills were installed locally and updated from the portal bundle after validating archive paths. They are development instructions, not dependencies or code running in the Worker. Optional Codex MCP is configured locally at the official endpoint with an explicit allowlist of 22 tools whose names were verified via public tools/list. Generic call_deye_api, equipment/config/strategy controls, station/device mutations and authentication convenience tools are excluded. No credentials are placed in MCP config or public Git. Authenticated station queries via MCP remain unvalidated and require secure per-owner token handling; the endpoint is not a replacement data source.
+
+Apply call-optimization guidance by retaining five-minute background polling, cached tokens, no repeated station enumeration, no provider calls from status commands and bounded exponential retries/Retry-After. Stable single-station polling is 288 calls/day, 8,928 latest-reading calls in 31 days plus token refresh/setup/retries; six maximum Deye attempts per invocation would be 53,568 in 31 days under existing assumptions. These are calculations, not measured consumption or a quota promise. Other apps, MCP queries, retries and concurrent/manual calls also count. The skill's approximate 100,000/month and 60 QPM figures are explicitly preliminary; do not hard-code them as guaranteed entitlements. No faster polling, history integration or device-field mapping was enabled by installing skills. Device units/scope/freshness and EV causation still require separate evidence.
+
+## Recovered notification research
+
+The original [2026-10-22 notification opportunities draft](DEYE-NOTIFICATION-RESEARCH.md) is now preserved with its historical scope and source links. Current grid setup/verification and measured-context contracts supersede its proposed implementation order; this recovery adds no new provider or verified measurement.

@@ -23,6 +23,7 @@
       "maxAgeSeconds": 600,
       "maxGapSeconds": 720,
       "notifications": { "full": true, "discharge": true },
+      "telegram": { "enabled": false },
       "ev": { "enabled": false }
     }
   }

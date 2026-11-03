@@ -1,6 +1,7 @@
 import { runMonitor } from './monitor.ts';
 import { errorCode } from './errors.ts';
 import type { Env } from './types.ts';
+import { handleTelegramRequest } from './bot.ts';
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
@@ -11,8 +12,8 @@ export default {
       console.error(JSON.stringify({ event: errorCode(error) }));
     }
   },
-  async fetch(): Promise<Response> {
-    // No public endpoint for polling, config, secrets, health data, or manual sends.
-    return new Response('Not found', { status: 404 });
+  async fetch(request?: Request, env?: Env): Promise<Response> {
+    if (!request || !env) return new Response('Not found', { status: 404 });
+    return handleTelegramRequest(request, env);
   },
 } satisfies ExportedHandler<Env>;

@@ -68,7 +68,7 @@ export class DeyeClient {
       { expirationTtl: Math.floor(expiry) });
     return this.token;
   }
-  async read(path: ReadPath, body: unknown): Promise<Record<string, unknown>> {
+  async read(path: ReadPath, body: unknown, attempts:1|2=2): Promise<Record<string, unknown>> {
     // Runtime guard also covers untyped JS consumers of this module.
     if (!['/station/list', '/station/latest', '/device/measurePoints', '/device/latest'].includes(path)) {
       throw new SafeError('deye_path_not_allowed');
@@ -77,7 +77,7 @@ export class DeyeClient {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const data = await jsonPost(HOSTS[this.c.region] + path, body,
-          { Authorization: this.token!.authorization }, this.deps, 'deye', 2);
+          { Authorization: this.token!.authorization }, this.deps, 'deye', attempts);
         if (data.success !== true) throw new SafeError('deye_api_rejected');
         return data;
       } catch (error) {
