@@ -58,6 +58,7 @@ export interface Config {
   // Default off; owner setup/visibility/CI enablement are separate gates.
   quietHours?: import('./quiet-hours.ts').QuietHoursPolicy | { enabled: false };
   gridImport?: import('./grid-config.ts').GridImportConfig | { enabled:false };
+  reserve?: import('./reserve.ts').ReservePolicy | {enabled:false};
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -101,11 +102,12 @@ export interface RecapAlert extends PendingDelivery {
   kind: 'recap';
   slot: import('./daily-recap.ts').DailyRecapSlot;
 }
-export interface GridAlert extends PendingDelivery {
-  kind:'grid'; qualifiedAt:number; expiresAt:number; sourceKey:string; policyKey:string;
+export type GridAlert = PendingDelivery & ({kind:'grid'}|{kind:'grid_recovered'}) & {
+  qualifiedAt:number; expiresAt:number; sourceKey:string; policyKey:string;
   reading:import('./grid-import.ts').GridReading;
 }
-export type PendingAlert = Alert | HealthAlert | RecapAlert | GridAlert;
+export interface ReserveAlert extends PendingDelivery {kind:'reserve';reading:Reading;policyKey:string;expiresAt:number;qualifiedAt:number}
+export type PendingAlert = Alert | HealthAlert | RecapAlert | GridAlert | ReserveAlert;
 export interface State {
   version: 1;
   identity: string;
@@ -123,6 +125,7 @@ export interface State {
   dailyRecap?: unknown;
   quietHours?: unknown;
   gridImport?: unknown;
+  reserve?:unknown;
   pending: PendingAlert[];
   apiFailures: number;
   apiRetryAt: number;

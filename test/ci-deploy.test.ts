@@ -211,3 +211,13 @@ test('CI deployment rejects unrecognized nested Telegram configuration', () => {
   const s = settings(); s.vars.MONITOR_CONFIG.telegram = { enabled: false, token: 'synthetic-secret' };
   assert.throws(() => prepareDeployment({ ...environment(), WORKER_CONFIG_JSON: JSON.stringify(s) }), /ci_config_unsupported_field/);
 });
+
+test('CI permits explicit reserve policy and opt-in grid recovery but never extra secret fields',()=>{
+ const s=settings();s.vars.MONITOR_CONFIG.reserve={enabled:true,warnSoc:13,rearmSoc:15,minimumMinutes:5,allHoursConfirmed:true};
+ s.vars.MONITOR_CONFIG.gridImport={enabled:true,thresholdWatts:1000,rearmWatts:100,minimumMinutes:10,point:'TotalGridPower',importSign:'positive',referenceConfirmed:true,allHoursConfirmed:true,recovery:true};
+ const prepare=()=>prepareDeployment({...environment(),WORKER_CONFIG_JSON:JSON.stringify(s)});
+ assert.equal(prepare().vars.MONITOR_CONFIG.reserve?.enabled,true);
+ const grid=prepare().vars.MONITOR_CONFIG.gridImport;assert.equal(grid?.enabled&&grid.recovery,true);
+ s.vars.MONITOR_CONFIG.reserve={...s.vars.MONITOR_CONFIG.reserve,token:'synthetic-private'}as never;
+ assert.throws(prepare,/ci_config_unsupported_field/);
+});

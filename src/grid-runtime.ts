@@ -3,13 +3,16 @@ import {advanceGridImport,type GridReading,type GridState,decodeGridReading} fro
 import {validateGridConfig} from './grid-config.ts';
 import {DeyeClient,sha256} from './deye.ts';
 import {SafeError} from './errors.ts';
-import {settleHealth} from './health-outbox.ts';
+import {admitAlert} from './delivery-priority.ts';
+import type {PendingAlert} from './types.ts';
+const isGrid=(a:PendingAlert):a is GridAlert=>a.kind==='grid'||a.kind==='grid_recovered';
+interface Recovery {episodeAt:number;lastAt:number;lowCount:number;lowSince?:number;queued?:true}
 import {kilowatts} from './power.ts';
 import {displayTime} from './display-time.ts';
 import {chargingSummary,type BotState} from './bot-state.ts';
 
 interface GridRecord {version:1;sourceKey:string;policyKey:string;tracker?:GridState;latest?:GridReading;
-  available:boolean;retryAt:number;failures:number}
+  available:boolean;retryAt:number;failures:number;recovery?:Recovery}
 const object=(v:unknown):Record<string,unknown>|undefined=>v!==null&&typeof v==='object'&&!Array.isArray(v)?v as Record<string,unknown>:undefined;
 const time=(v:unknown):v is number=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0&&v<=253402300799999;
 const reading=(v:unknown):v is GridReading=>!!object(v)&&time((v as GridReading).at)&&
@@ -20,7 +23,7 @@ function record(v:unknown):GridRecord|undefined {
     typeof r.policyKey==='string'&&r.policyKey.length<=512&&typeof r.available==='boolean'&&time(r.retryAt)&&
     Number.isInteger(r.failures)&&(r.failures as number)>=0&&(r.failures as number)<=10&&
     (r.latest===undefined||reading(r.latest))&&Object.keys(r).every(k=>
-      ['version','sourceKey','policyKey','tracker','latest','available','retryAt','failures'].includes(k));
+      ['version','sourceKey','policyKey','tracker','latest','available','retryAt','failures','recovery'].includes(k));
   if(!shape)return;
   try{
     const p=JSON.parse(r.policyKey as string);
@@ -32,6 +35,10 @@ function record(v:unknown):GridRecord|undefined {
       advanceGridImport(config,r.sourceKey as string,tracker,undefined,tracker.lastObservedAt as number,
         {maxAgeSeconds:600,maxGapSeconds:900}).status!=='ok'||
       r.latest!==undefined&&(r.latest as GridReading).at!==tracker.lastSampleAt||r.available&&!r.latest)return;
+    const q=object(r.recovery);
+    if(r.recovery!==undefined&&(!q||!time(q.episodeAt)||!time(q.lastAt)||q.episodeAt>q.lastAt||q.lastAt>(tracker.lastSampleAt as number)||
+      ![0,1,2].includes(q.lowCount as number)||(q.lowCount===0?q.lowSince!==undefined:!time(q.lowSince)||q.lowSince>q.lastAt)||
+      q.queued!==undefined&&q.queued!==true||Object.keys(q).some(k=>!['episodeAt','lastAt','lowCount','lowSince','queued'].includes(k))))return;
     return r as unknown as GridRecord;
   }catch{return;}
 }
@@ -44,25 +51,25 @@ export async function gridSourceKey(c:Config,env:Env):Promise<string|undefined>{
 }
 export function validGridAlert(v:unknown):v is GridAlert {
   const a=object(v);
-  return !!a&&Object.keys(a).length===10&&a.kind==='grid'&&time(a.qualifiedAt)&&a.id===`grid:${a.qualifiedAt}`&&
+  return !!a&&Object.keys(a).length===10&&(a.kind==='grid'||a.kind==='grid_recovered')&&time(a.qualifiedAt)&&a.id===`${a.kind}:${a.qualifiedAt}`&&
     time(a.createdAt)&&time(a.expiresAt)&&a.expiresAt===a.createdAt+600000&&time(a.nextAttemptAt)&&
     Number.isInteger(a.attempts)&&(a.attempts as number)>=0&&(a.attempts as number)<=3&&reading(a.reading)&&
     typeof a.sourceKey==='string'&&/^[a-f0-9]{64}$/.test(a.sourceKey)&&typeof a.policyKey==='string'&&a.policyKey.length<=512;
 }
 export async function syncGrid(s:State,c:Config,env:Env,client:DeyeClient|undefined,allowFetch:boolean,deps:Dependencies):Promise<string|undefined>{
   const p=validateGridConfig(c.gridImport),now=deps.now();
-  if(!p){delete s.gridImport;s.pending=s.pending.filter(a=>a.kind!=='grid');return;}
+  if(!p){delete s.gridImport;s.pending=s.pending.filter(a=>!isGrid(a));return;}
   if(!/^[A-Za-z0-9_-]{1,64}$/.test(env.GRID_DEVICE_SN??'')){
-    s.pending=s.pending.filter(a=>a.kind!=='grid');return 'grid_device_required';
+    s.pending=s.pending.filter(a=>!isGrid(a));return 'grid_device_required';
   }
   const sourceKey=(await gridSourceKey(c,env))!;
   let r=record(s.gridImport);
-  if(s.gridImport!==undefined&&!r){s.pending=s.pending.filter(a=>a.kind!=='grid');return 'grid_state_invalid';}
+  if(s.gridImport!==undefined&&!r){s.pending=s.pending.filter(a=>!isGrid(a));return 'grid_state_invalid';}
   const limits={maxAgeSeconds:c.maxAgeSeconds,maxGapSeconds:c.maxGapSeconds};
   const check=advanceGridImport(p,sourceKey,r?.tracker,undefined,now,limits);
-  if(check.status==='invalid'){s.pending=s.pending.filter(a=>a.kind!=='grid');return check.code;}
+  if(check.status==='invalid'){s.pending=s.pending.filter(a=>!isGrid(a));return check.code;}
   if(r?.tracker&&now<r.tracker.lastObservedAt){
-    r.available=false;s.gridImport=r;s.pending=s.pending.filter(a=>a.kind!=='grid');return 'grid_clock_rollback';
+    r.available=false;s.gridImport=r;s.pending=s.pending.filter(a=>!isGrid(a));return 'grid_clock_rollback';
   }
   if(!r||r.sourceKey!==sourceKey||r.policyKey!==policyKey(c))r={version:1,sourceKey,policyKey:policyKey(c),available:false,retryAt:0,failures:0};
   let current:GridReading|undefined,code:string|undefined;
@@ -82,33 +89,47 @@ export async function syncGrid(s:State,c:Config,env:Env,client:DeyeClient|undefi
     }
   }
   const next=advanceGridImport(p,sourceKey,r.tracker,current,deps.now(),limits);
-  if(next.status==='invalid'){s.pending=s.pending.filter(a=>a.kind!=='grid');return next.code;}
+  if(next.status==='invalid'){s.pending=s.pending.filter(a=>!isGrid(a));return next.code;}
   r.tracker=next.state;r.available=!!current&&current.at===r.tracker.lastSampleAt&&deps.now()>=r.tracker.lastObservedAt;
   if(current&&r.available)r.latest={...current};
   s.gridImport=r;
-  s.pending=s.pending.filter(a=>a.kind!=='grid'||(a.sourceKey===sourceKey&&a.policyKey===r.policyKey&&
-    a.attempts<3&&deps.now()<a.expiresAt&&a.nextAttemptAt<a.expiresAt&&(!current||current.importWatts>p.thresholdWatts)));
-  if(current&&r.available)for(const a of s.pending)if(a.kind==='grid')a.reading={...current};
+  if(!p.recovery)delete r.recovery;
+  s.pending=s.pending.filter(a=>!isGrid(a)||(a.sourceKey===sourceKey&&a.policyKey===r.policyKey&&
+    a.attempts<3&&deps.now()<a.expiresAt&&a.nextAttemptAt<a.expiresAt&&
+    (a.kind!=='grid_recovered'||p.recovery===true&&!!r.recovery?.queued)&&
+    (!current||(a.kind==='grid'?current.importWatts>p.thresholdWatts:current.importWatts<p.rearmWatts))));
+  if(current&&r.available)for(const a of s.pending)if(isGrid(a))a.reading={...current};
+  const q=r.recovery;
+  if(q&&!q.queued){
+    if(!current||!r.available||current.importWatts>=p.rearmWatts||current.at-q.lastAt>c.maxGapSeconds*1000){q.lowCount=0;delete q.lowSince;}
+    if(current&&r.available&&current.at>q.lastAt){
+      q.lastAt=current.at;
+      if(current.importWatts<p.rearmWatts){q.lowSince??=current.at;q.lowCount=Math.min(2,q.lowCount+1);
+        if(q.lowCount>=2&&current.at-q.lowSince>=300000){q.queued=true;
+          admitAlert(s,c,{kind:'grid_recovered',id:`grid_recovered:${current.at}`,qualifiedAt:current.at,createdAt:deps.now(),expiresAt:deps.now()+600000,
+            reading:{...current},sourceKey,policyKey:r.policyKey,attempts:0,nextAttemptAt:deps.now()},deps.now());
+        }
+      }
+    }
+  }
   if(next.event){
     s.pending=s.pending.filter(a=>a.kind!=='grid');
-    if(s.pending.length>=2){
-      const victim=s.pending.find(a=>a.kind==='recap')??s.pending.find(a=>a.kind==='health')??
-        s.pending.find(a=>a.kind==='discharge')??s.pending[0];
-      if(victim.kind==='health')settleHealth(s,c,victim,'abandoned',deps.now());
-      s.pending=s.pending.filter(a=>a!==victim);
-    }
-    s.pending.unshift({kind:'grid',id:next.event.id,qualifiedAt:next.event.at,createdAt:next.event.createdAt,
+    admitAlert(s,c,{kind:'grid',id:next.event.id,qualifiedAt:next.event.at,createdAt:next.event.createdAt,
       expiresAt:next.event.expiresAt,reading:{at:next.event.at,importWatts:next.event.importWatts},
-      sourceKey,policyKey:r.policyKey,attempts:0,nextAttemptAt:deps.now()});
+      sourceKey,policyKey:r.policyKey,attempts:0,nextAttemptAt:deps.now()},deps.now());
   }
-  s.pending=[...s.pending.filter(a=>a.kind==='grid'),...s.pending.filter(a=>a.kind!=='grid')];
   return code;
 }
 export function gridMessage(s:State,c:Config,a:GridAlert,now:number,bot?:BotState):string|undefined {
   const p=validateGridConfig(c.gridImport),r=record(s.gridImport);
   if(!p||!r?.available||!r.latest||!r.tracker||now<r.tracker.lastObservedAt||now>=a.expiresAt||a.attempts>=3||
     a.sourceKey!==r.sourceKey||a.policyKey!==policyKey(c)||a.reading.at>now||now-a.reading.at>c.maxAgeSeconds*1000||
-    r.latest.at!==a.reading.at||r.latest.importWatts<=p.thresholdWatts)return;
+    r.latest.at!==a.reading.at)return;
+  if(a.kind==='grid_recovered'){
+    if(!p.recovery||!r.recovery?.queued||r.latest.importWatts>=p.rearmWatts)return;
+    return `✅ Grid import back below your re-arm level\n\nMeasured import: ${kilowatts(a.reading.importWatts)}\nBelow ${kilowatts(p.rearmWatts)} in two distinct readings spanning at least 5 minutes.\nReading: ${displayTime(a.reading.at,c)}\nDeye Cloud data may be delayed. This does not establish zero import, a grid outage or an EV charging state.`;
+  }
+  if(r.latest.importWatts<=p.thresholdWatts)return;
   return `⚡ Grid electricity use\n\nMeasured import: ${kilowatts(a.reading.importWatts)}\nAbove ${kilowatts(p.thresholdWatts)} across readings spanning ${p.minimumMinutes} minutes.\nReading: ${displayTime(a.reading.at,c)}\nCloud data may be delayed.\n\n${chargingSummary(bot,c,now)}\nAggregate grid import does not identify which load caused it. Equipment changes remain manual.`;
 }
 export function gridStatus(c:Config,raw:unknown,now:number,expectedSource?:string):string {
@@ -116,9 +137,17 @@ export function gridStatus(c:Config,raw:unknown,now:number,expectedSource?:strin
   if(!p)return 'Grid-import alerts: off; verified device mapping and explicit setup are required.';
   const r=record(raw);
   const policy=`Grid-import alerts: ${c.enabled?'on':'paused'} (configured), above ${kilowatts(p.thresholdWatts)} for ${p.minimumMinutes} minutes, all hours.`;
-  return policy+(!r?.available||!r.latest||r.policyKey!==policyKey(c)||r.sourceKey!==expectedSource||
+  return policy+`\nRecovery notice: ${p.recovery?'on':'off'}.`+(!r?.available||!r.latest||r.policyKey!==policyKey(c)||r.sourceKey!==expectedSource||
     !r.tracker||now<r.tracker.lastObservedAt||r.latest.at>now||now-r.latest.at>c.maxAgeSeconds*1000?
     '\nGrid reading: unavailable or stale; no current import claim.':
     `\nCached grid import: ${kilowatts(r.latest.importWatts)}. Reading: ${displayTime(r.latest.at,c)}.`)+
     '\nConfiguration does not verify message receipt. Grid import and battery discharge are separate rules.';
+}
+
+export function settleGrid(s:State,c:Config,a:GridAlert):void {
+ const p=validateGridConfig(c.gridImport),r=record(s.gridImport);
+ if(!p?.recovery||!r||r.sourceKey!==a.sourceKey||r.policyKey!==a.policyKey)return;
+ if(a.kind==='grid')r.recovery={episodeAt:a.qualifiedAt,lastAt:a.reading.at,lowCount:0};
+ else delete r.recovery;
+ s.gridImport=r;
 }
