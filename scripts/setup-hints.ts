@@ -26,7 +26,12 @@ export function setupHint(code: string): string | undefined {
     case 'health_setup_not_confirmed':
     case 'recap_setup_not_confirmed':
     case 'quiet_setup_not_confirmed':
+    case 'grid_setup_not_confirmed':
       return 'This preference change was not saved. Rerun its setup command when ready; deployment remains a separate manual step.';
+    case 'grid_config_invalid':
+      return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.gridImport, then rerun npm run grid:setup. Verify the device point, W units, direction, timestamp and metering scope independently; enter separate grid thresholds/duration and all-hours consent. Keep battery settings. Cleanup requires monitoring enabled before rollback.';
+    case 'grid_device_required':
+      return 'Set GRID_DEVICE_SN privately in ignored .dev.vars for the independently verified device, then upload secrets manually. Never guess a device or copy a synthetic identifier.';
     case 'quiet_hours_config_invalid':
       return 'Review ignored wrangler.jsonc privately: correct or omit only MONITOR_CONFIG.quietHours, then rerun npm run quiet:setup. Enter a matching explicit timezone, distinct five-minute local boundaries, all four category choices and suppression consent. Apply manually; keep monitoring enabled and verify quiet-only cleanup before rollback; preserve battery/health/recap settings.';
     case 'data_health_config_invalid':

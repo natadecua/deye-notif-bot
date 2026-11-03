@@ -72,9 +72,9 @@ test('clock rollback and stale/future readings cannot issue a candidate',()=>{
   assert.equal(ok(advanceGridImport(policy,'synthetic-source',a,{at:now,importWatts:500},now-1,limits)).event,undefined);
   for(const at of [now-600001,now+1])assert.equal(ok(advanceGridImport(policy,'synthetic-source',undefined,{at,importWatts:500},now,limits)).event,undefined);
 });
-test('pure grid foundation is outside the deployed Worker graph',async()=>{
+test('grid helper is integrated in the Worker graph while public defaults remain off',async()=>{
   const r=await build({entryPoints:[fileURLToPath(new NodeURL('../src/index.ts',import.meta.url))],bundle:true,write:false,metafile:true,platform:'browser'});
-  assert(!Object.keys(r.metafile!.inputs).some(p=>p.replaceAll('\\','/').endsWith('/grid-import.ts')));
+  assert(Object.keys(r.metafile!.inputs).some(p=>p.replaceAll('\\','/').endsWith('/grid-import.ts')));
 });
 test('zero rearm is rejected rather than accepting a policy that cannot rearm at zero import',()=>{
   const r=step(undefined,now,500,{...policy,rearmWatts:0});

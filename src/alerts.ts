@@ -8,6 +8,7 @@ import { daytimeIdentity, daytimePeriod, daytimeSummary, dischargeWindowOpen } f
 import { displayTime } from './display-time.ts';
 import { makeBatteryRoom, validHealthAlert } from './health-outbox.ts';
 import { validRecapAlert } from './recap-outbox.ts';
+import {validGridAlert} from './grid-runtime.ts';
 
 export const ALERT_TTL_MS = 30 * 60 * 1000;
 export function isBatteryAlert(a: PendingAlert): a is Alert { return a.kind === 'full' || a.kind === 'discharge'; }
@@ -38,6 +39,7 @@ export function decodeState(value: string | null, c: Config): State {
   try { s = JSON.parse(value); } catch { throw new SafeError('state_invalid'); }
   // Fail closed on corruption; silently resetting could spam a latched cycle.
   const finite = (n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if(Array.isArray(s?.pending))s.pending=s.pending.filter(a=>a?.kind!=='grid'||validGridAlert(a));
   if (!s || s.version !== 1 || typeof s.identity !== 'string' ||
       typeof s.fullArmed !== 'boolean' || typeof s.dischargeArmed !== 'boolean' ||
       !Number.isInteger(s.highCount) || s.highCount < 0 || s.highCount > 2 ||
@@ -53,6 +55,7 @@ export function decodeState(value: string | null, c: Config): State {
       s.pending.filter(a => a?.kind === 'recap').length > 1 || s.pending.some(a =>
         a?.kind === 'health' ? !validHealthAlert(a) :
         a?.kind === 'recap' ? !validRecapAlert(a) :
+        a?.kind === 'grid' ? !validGridAlert(a) :
         !a || !['full', 'discharge'].includes(a.kind) || typeof a.id !== 'string' ||
         !a.reading || !finite(a.reading.at) || !finite(a.reading.soc) || a.reading.soc > 100 ||
         !finite(a.reading.dischargeWatts) || !finite(a.createdAt) || !finite(a.nextAttemptAt) ||
@@ -76,6 +79,7 @@ export function decodeState(value: string | null, c: Config): State {
 export function expirePending(s: State, now: number): void {
   // Informational expiry/exhaustion is settled without minting a new candidate.
   s.pending = s.pending.filter(a => !isBatteryAlert(a) || (now - a.createdAt <= ALERT_TTL_MS && a.attempts < 3));
+  s.pending=s.pending.filter(a=>a.kind!=='grid'||now<a.expiresAt&&a.attempts<3);
 }
 export function resetAfterGap(s: State, c: Config, now: number): void {
   if (s.lastReadingAt === undefined || now - s.lastReadingAt > c.maxGapSeconds * 1000) resetDischargeConfirmation(s);
@@ -90,7 +94,7 @@ export function transition(s: State, r: Reading, c: Config, now: number): 'accep
   const enqueue = (kind: Alert['kind']) => {
     if (notificationEnabled(c, kind)) {
       makeBatteryRoom(s, c, now);
-      s.pending.push({ id: `${kind}:${r.at}`, kind, reading: r, createdAt: now, attempts: 0, nextAttemptAt: now });
+      if(s.pending.length<2)s.pending.push({ id: `${kind}:${r.at}`, kind, reading: r, createdAt: now, attempts: 0, nextAttemptAt: now });
     }
   };
   if (r.soc < c.fullRearmSoc) {
@@ -141,6 +145,7 @@ export function batteryLoadSummary(c: Config): string {
 export function alertText(a: PendingAlert, c: Config, context?: { bot?: BotState; now: number }): string {
   if (a.kind === 'health') throw new SafeError('health_event_requires_context');
   if (a.kind === 'recap') throw new SafeError('recap_event_requires_context');
+  if (a.kind === 'grid') throw new SafeError('grid_event_requires_context');
   const when = displayTime(a.reading.at, c, 'readable');
   const footer = `\n\nReading: ${when}\nDeye Cloud data may be delayed.`;
   if (a.kind === 'full') {

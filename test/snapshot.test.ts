@@ -137,6 +137,8 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
     dailyRecap: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', hour: 17, minute: 35, scheduleConfirmed: true },
     quietHours: { enabled: true, timeZone: 'America/Argentina/ComodRivadavia', startMinute: 1320, endMinute: 360,
       categories: { full: true, discharge: true, health: true, recap: true }, suppressionConfirmed: true },
+    gridImport:{enabled:true,thresholdWatts:1000,rearmWatts:100,minimumMinutes:10,point:'TotalGridPower',
+      importSign:'positive',referenceConfirmed:true,allHoursConfirmed:true},
     weather: { enabled: true, latitude: 10, longitude: 20, nonCommercialConfirmed: true },
     dataHealth: { enabled: true, warnAfterMinutes: 30, delivery: 'all-hours', allHoursConfirmed: true } });
   const state = seed(context); state.latestReading!.dischargeWatts = Number.MAX_VALUE; state.apiRetryAt = 8.64e15;

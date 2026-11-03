@@ -57,6 +57,7 @@ export interface Config {
   dailyRecap?: import('./recap-config.ts').DailyRecapPolicy | { enabled: false };
   // Default off; owner setup/visibility/CI enablement are separate gates.
   quietHours?: import('./quiet-hours.ts').QuietHoursPolicy | { enabled: false };
+  gridImport?: import('./grid-config.ts').GridImportConfig | { enabled:false };
 }
 export interface Secrets {
   DEYE_APP_ID: string;
@@ -71,6 +72,7 @@ export interface Secrets {
   TELEGRAM_WEBHOOK_SECRET?: string;
   TELEGRAM_OWNER_ID?: string;
   TELEGRAM_BOT_USERNAME?: string;
+  GRID_DEVICE_SN?: string;
 }
 export interface KVStore {
   get(key: string): Promise<string | null>;
@@ -99,7 +101,11 @@ export interface RecapAlert extends PendingDelivery {
   kind: 'recap';
   slot: import('./daily-recap.ts').DailyRecapSlot;
 }
-export type PendingAlert = Alert | HealthAlert | RecapAlert;
+export interface GridAlert extends PendingDelivery {
+  kind:'grid'; qualifiedAt:number; expiresAt:number; sourceKey:string; policyKey:string;
+  reading:import('./grid-import.ts').GridReading;
+}
+export type PendingAlert = Alert | HealthAlert | RecapAlert | GridAlert;
 export interface State {
   version: 1;
   identity: string;
@@ -116,6 +122,7 @@ export interface State {
   dataHealth?: unknown;
   dailyRecap?: unknown;
   quietHours?: unknown;
+  gridImport?: unknown;
   pending: PendingAlert[];
   apiFailures: number;
   apiRetryAt: number;

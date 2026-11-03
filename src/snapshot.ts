@@ -53,6 +53,7 @@ export function renderBriefSnapshot(state: State, c: Config, now: number, bot?: 
     'Health notices: paused (configured on)') + policyLink : 'Health notices: off.');
   lines.push(recapPreferencesText(c, true));
   lines.push(quietPreferencesText(c, true));
+  if(commands&&c.gridImport?.enabled)lines.push('Grid: /status for cached import.');
   if (commands && c.weather?.enabled) lines.push('Weather: /status for cached forecast.');
   lines.push('Cached only; cloud data may be delayed.' + (commands ? ' /status for details.' : ''));
   return lines.join('\n') + `\n\n${chargingSummary(commands ? bot : undefined, c, now, formatTime)}`;

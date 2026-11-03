@@ -17,8 +17,9 @@ import { helpNavigation, navigationCommand, NAVIGATION_HELP, NAVIGATION_EXPIRED 
 import { cachedUpdateStatus, renderBriefSnapshot } from './snapshot.ts';
 import { settingsMenu, SETTINGS_MENU_EXPIRED } from './settings-menu.ts';
 import { kilowatts } from './power.ts';
+import {gridStatus,gridSourceKey} from './grid-runtime.ts';
 
-const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/discharge_minutes MINUTES — daytime cloud-dip tolerance (1–120)\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
+const help = '🔋 Deye battery bot\n\n/status — latest cached battery reading\n/status brief — compact cached view\n/charging [profile ID] — confirm you are charging\n/stopped — confirm you are not charging\n/settings — notification preferences\n/discharge_minutes MINUTES — daytime cloud-dip tolerance (1–120)\n/grid_kw KILOWATTS — grid threshold after verified setup\n/grid_minutes MINUTES — sustained grid import (1–120)\n/settings reset — restore deployment preferences\n/help — show these commands\n\nCharging reports are manual and expire after 6 hours. House battery discharge cannot identify EV charging. Up to 48 commands per UTC day; leave a few seconds between commands.';
 const record = (v: unknown): Record<string, unknown> | undefined =>
   v !== null && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
 function secretMatches(actual: string | null, expected: string | undefined): boolean {
@@ -49,7 +50,8 @@ async function status(env: Env, c: Config, now: number, brief = false, bot?: Bot
   if (brief) return renderBriefSnapshot(state, c, now, bot);
   const r = state.latestReading;
   const weather = weatherStatusText(state.weather, c, now);
-  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}\n\n${recapPreferencesText(c)}\n\n${quietPreferencesText(c)}` + (weather ? `\n\n${weather}` : '');
+  const grid=c.gridImport?.enabled?gridStatus(c,state.gridImport,now,await gridSourceKey(c,env)):'';
+  const context = `\n\n${cachedUpdateStatus(state, c, now)}\n\n${healthPreferencesText(c)}\n\n${recapPreferencesText(c)}\n\n${quietPreferencesText(c)}` + (grid?`\n\n${grid}`:'') + (weather ? `\n\n${weather}` : '');
   if (!r) return '🔋 Battery status\n\nNo cached reading yet.' + context;
   const ageMs = now - r.at, age = Math.floor(ageMs / 1000);
   const quality = ageMs < 0 || ageMs > c.maxAgeSeconds * 1000 ? 'stale — do not treat this as current' : 'within the configured freshness limit';

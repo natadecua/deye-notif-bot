@@ -33,7 +33,7 @@ export function prepareDeployment(env: Environment): DeploymentConfig {
   const source = only(parsed, [...Object.keys(template), 'account_id', 'send_metrics']);
   if (source.account_id !== undefined && source.account_id !== account) throw new SafeError('ci_account_mismatch');
   const vars = only(source.vars, ['MONITOR_CONFIG']);
-  const monitor = only(vars.MONITOR_CONFIG, [...Object.keys(template.vars.MONITOR_CONFIG), 'daytimeDischarge', 'weather', 'dataHealth', 'dailyRecap', 'quietHours']);
+  const monitor = only(vars.MONITOR_CONFIG, [...Object.keys(template.vars.MONITOR_CONFIG), 'daytimeDischarge', 'weather', 'dataHealth', 'dailyRecap', 'quietHours','gridImport']);
   const ev = only(monitor.ev, ['enabled', 'confirmed', 'phases', 'voltage', 'minimumAmps', 'profiles']);
   if (Array.isArray(ev.profiles)) for (const profile of ev.profiles) {
     only(profile, ['id', 'label', 'type', 'amps', 'nominalWatts']);
@@ -44,6 +44,7 @@ export function prepareDeployment(env: Environment): DeploymentConfig {
   if (monitor.weather !== undefined) only(monitor.weather, ['enabled', 'latitude', 'longitude', 'nonCommercialConfirmed']);
   if (monitor.dataHealth !== undefined) only(monitor.dataHealth, ['enabled', 'warnAfterMinutes', 'delivery', 'allHoursConfirmed']);
   if (monitor.dailyRecap !== undefined) only(monitor.dailyRecap, ['enabled', 'timeZone', 'hour', 'minute', 'scheduleConfirmed']);
+  if(monitor.gridImport!==undefined)only(monitor.gridImport,['enabled','thresholdWatts','rearmWatts','minimumMinutes','point','importSign','referenceConfirmed','allHoursConfirmed']);
   if (monitor.quietHours !== undefined) {
     const quiet = only(monitor.quietHours, ['enabled', 'timeZone', 'startMinute', 'endMinute', 'categories', 'suppressionConfirmed']);
     if (quiet.categories !== undefined) only(quiet.categories, ['full', 'discharge', 'health', 'recap']);

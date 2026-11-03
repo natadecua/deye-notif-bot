@@ -13,6 +13,7 @@ import type { HealthObservation } from './data-health.ts';
 import { recapMessage, syncRecap } from './recap-outbox.ts';
 import { advanceQuietHours, type QuietHoursState } from './quiet-hours.ts';
 import { resolveSettings } from './telegram-settings.ts';
+import {syncGrid,gridMessage} from './grid-runtime.ts';
 
 export async function runMonitor(env: Env, deps: Dependencies = defaults): Promise<string[]> {
   const base = validateConfig(env.MONITOR_CONFIG);
@@ -53,15 +54,18 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   const backoff = now < state.apiRetryAt;
   const healthWork = c.dataHealth?.enabled || state.dataHealth !== undefined || state.pending.some(a => a.kind === 'health');
   const recapWork = c.dailyRecap?.enabled || state.dailyRecap !== undefined || state.pending.some(a => a.kind === 'recap');
-  if (backoff && !healthWork && !recapWork && !quietWork) {
+  const gridWork=c.gridImport?.enabled||state.gridImport!==undefined||state.pending.some(a=>a.kind==='grid');
+  if (backoff && !healthWork && !recapWork && !quietWork && !gridWork) {
     if (cancelledByPreference) await env.STATE.put('monitor:v1', JSON.stringify(state));
     return ['api_backoff'];
   }
   let eligibleToSend = false;
   let observation: HealthObservation = { kind: 'idle' };
+  let client:DeyeClient|undefined,stationFetched=false;
   if (backoff) events.push('api_backoff');
   else try {
-    const raw = await new DeyeClient(c, env, env.STATE, deps).latest();
+    client=new DeyeClient(c,env,env.STATE,deps);
+    const raw = await client.latest();stationFetched=true;
     const reading = normalizeReading(raw, c, deps.now());
     const outcome = transition(state, reading, c, deps.now());
     observation = outcome === 'accepted' ? { kind: 'accepted', at: reading.at } : { kind: outcome };
@@ -89,6 +93,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     state.apiRetryAt = Math.max(deps.now() + delay, error instanceof SafeError ? error.retryAt : 0);
     events.push(errorCode(error));
   }
+  if(gridWork){const code=await syncGrid(state,c,env,client,!backoff&&stationFetched,deps);if(code)events.push(code);}
   const healthError = healthWork ? syncHealth(state, c, observation, deps.now()) : undefined;
   if (healthError) events.push(healthError);
   const recapError = recapWork ? syncRecap(state, c, deps.now()) : undefined;
@@ -110,7 +115,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
   let changed = false;
   // No admission after this checkpoint: expiry can only remove original events.
   const expireAfterWait = (at: number) => {
-    if (!quietWork) return;
+    if (!quietWork&&!gridWork) return;
     const before = state.pending.length;
     expirePending(state, at);
     for (const pending of [...state.pending]) {
@@ -128,7 +133,10 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
     if (!state.pending.some(p => p.id === a.id)) continue;
     if (a.nextAttemptAt > deps.now()) continue;
     let informationalText: string | undefined;
-    if (a.kind === 'health') {
+    if(a.kind==='grid'){
+      informationalText=gridMessage(state,c,a,deps.now(),bot);
+      if(!informationalText){if(deps.now()>=a.expiresAt){state.pending=state.pending.filter(p=>p!==a);changed=true;}continue;}
+    } else if (a.kind === 'health') {
       informationalText = healthMessage(state, c, a, deps.now());
       if (!informationalText) continue;
     } else if (a.kind === 'recap') {
@@ -144,7 +152,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
       changed = true;
       continue;
     }
-    if (muted?.[a.kind]) continue;
+    if (a.kind!=='grid'&&muted?.[a.kind]) continue;
     if (a.kind === 'discharge' && refreshWeather) {
       state.weather = await fetchWeather(state.weather as WeatherCache, c, deps);
       refreshWeather = false;
@@ -199,6 +207,7 @@ export async function runMonitor(env: Env, deps: Dependencies = defaults): Promi
           state.pending = state.pending.filter(p => p.id !== a.id);
           events.push('notification_abandoned');
         }
+        if(a.kind==='grid'&&a.nextAttemptAt>=a.expiresAt){state.pending=state.pending.filter(p=>p!==a);events.push('notification_abandoned');}
       }
     }
   }

@@ -17,6 +17,16 @@ function environment() {
   return { GITHUB_ACTIONS: 'true', CLOUDFLARE_ACCOUNT_ID: account,
     CLOUDFLARE_API_TOKEN: 'synthetic-not-a-valid-token', WORKER_CONFIG_JSON: JSON.stringify(settings()) };
 }
+test('CI accepts explicit grid verification and rejects extra credentials before deployment',()=>{
+  const s=settings(),p={enabled:true,thresholdWatts:1000,rearmWatts:100,minimumMinutes:10,point:'TotalGridPower',
+    importSign:'positive',referenceConfirmed:true,allHoursConfirmed:true};
+  s.vars.MONITOR_CONFIG.gridImport=p;
+  const prepare=()=>prepareDeployment({...environment(),WORKER_CONFIG_JSON:JSON.stringify(s)});
+  assert.deepEqual(prepare().vars.MONITOR_CONFIG.gridImport,p);
+  s.vars.MONITOR_CONFIG.gridImport={...p,deviceSn:'synthetic-private'};
+  assert.throws(prepare,/ci_config_unsupported_field/);
+  s.vars.MONITOR_CONFIG.gridImport={...p,referenceConfirmed:false};assert.throws(prepare,/grid_config_invalid/);
+});
 
 test('CI accepts consented quiet policy and rejects extra top-level/nested fields and invalid values', () => {
   const s = settings(), policy = { enabled: true as const, timeZone: 'Asia/Manila', startMinute: 1320, endMinute: 360,

@@ -31,7 +31,8 @@
     "weather:setup": "tsx scripts/cli.ts weather-setup",
     "health:setup": "tsx scripts/cli.ts health-setup",
     "recap:setup": "tsx scripts/cli.ts recap-setup",
-    "quiet:setup": "tsx scripts/cli.ts quiet-setup"
+    "quiet:setup": "tsx scripts/cli.ts quiet-setup",
+    "grid:setup": "tsx scripts/cli.ts grid-setup"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",

@@ -23,6 +23,7 @@ import { configureQuiet } from './quiet-preferences.ts';
 import { runOwnerSetup, configureTelegramOwner } from './owner-setup.ts';
 import { setupHint } from './setup-hints.ts';
 import { telegramDoctor } from './telegram-doctor.ts';
+import {configureGrid} from './grid-preferences.ts';
 
 // Resolve against this repository, even if the command is launched elsewhere.
 const root = fileURLToPath(new NodeURL('../', import.meta.url));
@@ -43,7 +44,7 @@ async function secrets(required = true): Promise<Secrets> {
   const local = await exists(secretsPath) ? parseEnv(await readFile(secretsPath, 'utf8')) : {};
   const names = ['DEYE_APP_ID', 'DEYE_APP_SECRET', 'DEYE_ACCOUNT', 'DEYE_ACCOUNT_FIELD',
     'DEYE_PASSWORD_SHA256', 'DEYE_COMPANY_ID', 'DEYE_COUNTRY_CODE', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID',
-    'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_OWNER_ID', 'TELEGRAM_BOT_USERNAME'];
+    'TELEGRAM_WEBHOOK_SECRET', 'TELEGRAM_OWNER_ID', 'TELEGRAM_BOT_USERNAME','GRID_DEVICE_SN'];
   const result = Object.fromEntries(names.map(k => [k, process.env[k] ?? local[k]])) as unknown as Secrets;
   if (required) { validateDeyeSecrets(result); validateTelegramSecrets(result); }
   return result;
@@ -111,6 +112,7 @@ async function uploadSecrets(): Promise<void> {
   await validateDeploy();
   const s = await secrets();
   const w = await config();
+  if(w.vars.MONITOR_CONFIG.gridImport?.enabled&&!/^[A-Za-z0-9_-]{1,64}$/.test(s.GRID_DEVICE_SN??''))throw new SafeError('grid_device_required');
   if (w.vars.MONITOR_CONFIG.telegram?.enabled && (!/^[1-9]\d*$/.test(s.TELEGRAM_OWNER_ID ?? '') ||
       !/^[a-zA-Z0-9_-]{32,256}$/.test(s.TELEGRAM_WEBHOOK_SECRET ?? ''))) throw new SafeError('telegram_owner_setup_required');
   const dir = await mkdtemp(join(tmpdir(), 'deye-secrets-'));
@@ -141,6 +143,12 @@ try {
       w.vars.MONITOR_CONFIG = await configureDaytime(w.vars.MONITOR_CONFIG, preferencePrompts);
       await writeFile(configPath, JSON.stringify(w, null, 2) + '\n');
       console.log('Saved daytime preferences in ignored wrangler.jsonc. No provider calls or deployment were made. Run npm run deploy to apply to an existing installation.');
+      break;
+    }
+    case 'grid-setup': {
+      const w=await config();w.vars.MONITOR_CONFIG=await configureGrid(w.vars.MONITOR_CONFIG,preferencePrompts);
+      await writeFile(configPath,JSON.stringify(w,null,2)+'\n');
+      console.log('Saved grid preferences locally. No provider request, secret upload or deployment occurred.');
       break;
     }
     case 'quiet-setup': {
