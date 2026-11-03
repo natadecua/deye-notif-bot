@@ -159,3 +159,7 @@ Battery-discharge alerts, detailed/brief cached status and settings now display 
 ## Independent grid-import settings (verified setup only)
 
 After independently verified private source setup and a deliberate release, `/grid_kw 1` sets a 1 kW import threshold and `/grid_minutes 10` sets a ten-minute sustained interval (whole 1–120). These act day and night, independently of battery discharge; they cannot turn on an unverified/off source or claim EV causation. `/settings` shows configured policy; `/status` shows only sufficiently fresh matching cached import, with no new Deye call. Changed values restart grid confirmation, and `/settings reset` restores deployment preferences. Existing authorization, replay, command/day/write caps apply. Grid all-hours consent is separate from the four quiet-hours categories. See [grid verification, setup and rollback](GRID-IMPORT.md). Current owner installation remains grid-off pending direction/scope evidence.
+
+## Fresh SOC when discharge is unavailable
+
+A partial Deye update no longer freezes the whole cached status. `/status` and `/status brief` show independently valid SOC/power from the latest timestamp, label missing fields **unavailable** and apply exact source-age/future checks. They never combine newer charge with older power or coerce missing data to zero. Detailed update context explains that the cached update is partial and battery-triggered alerts require a complete fresh reading. Legacy complete caches remain readable; status/recap still make no provider request or monitor write.

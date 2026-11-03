@@ -83,6 +83,7 @@ export interface Env extends Secrets {
   MONITOR_CONFIG: unknown;
 }
 export interface Reading { at: number; soc: number; dischargeWatts: number }
+export interface BatteryStatusReading {version:1;at:number;soc?:number;dischargeWatts?:number}
 interface PendingDelivery {
   id: string;
   createdAt: number;
@@ -111,6 +112,8 @@ export interface State {
   identity: string;
   lastReadingAt?: number;
   latestReading?: Reading;
+  // Display-only independently validated fields; never used as an alert Reading.
+  batteryStatus?:unknown;
   fullArmed: boolean;
   dischargeArmed: boolean;
   highCount: number;

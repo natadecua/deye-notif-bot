@@ -1,4 +1,4 @@
-import type { Config, Reading } from './types.ts';
+import type { BatteryStatusReading, Config, Reading } from './types.ts';
 import { SafeError } from './errors.ts';
 
 export function parseTimestamp(value: unknown, mode: Config['timestampMode']): number {
@@ -27,18 +27,21 @@ export function parseTimestamp(value: unknown, mode: Config['timestampMode']): n
   return at;
 }
 
-export function normalizeReading(raw: unknown, c: Config, now: number): Reading {
-  if (!raw || typeof raw !== 'object') throw new SafeError('reading_invalid');
-  const r = raw as Record<string, unknown>;
-  const at = parseTimestamp(r.lastUpdateTime, c.timestampMode);
-  if (at > now) throw new SafeError('reading_future');
-  if (now - at > c.maxAgeSeconds * 1000) throw new SafeError('reading_stale');
-  const soc = r.batterySOC, power = r.dischargePower;
-  if (typeof soc !== 'number' || !Number.isFinite(soc) || soc < 0 || soc > 100 ||
-      typeof power !== 'number' || !Number.isFinite(power) || power < 0) {
-    throw new SafeError('measurement_missing_or_invalid');
+export function normalizeStatusReading(raw:unknown,c:Config,now:number):BatteryStatusReading {
+  if(!raw||typeof raw!=='object')throw new SafeError('reading_invalid');
+  const r=raw as Record<string,unknown>,at=parseTimestamp(r.lastUpdateTime,c.timestampMode);
+  if(at>now)throw new SafeError('reading_future');
+  if(now-at>c.maxAgeSeconds*1000)throw new SafeError('reading_stale');
+  const out:BatteryStatusReading={version:1,at};
+  if(typeof r.batterySOC==='number'&&Number.isFinite(r.batterySOC)&&r.batterySOC>=0&&r.batterySOC<=100)out.soc=r.batterySOC;
+  if(typeof r.dischargePower==='number'&&Number.isFinite(r.dischargePower)&&r.dischargePower>=0){
+    const watts=r.dischargePower*(c.powerUnit==='kW'?1000:1);
+    if(Number.isFinite(watts))out.dischargeWatts=watts;
   }
-  const dischargeWatts = power * (c.powerUnit === 'kW' ? 1000 : 1);
-  if (!Number.isFinite(dischargeWatts)) throw new SafeError('measurement_missing_or_invalid');
-  return { at, soc, dischargeWatts };
+  return out;
+}
+export function normalizeReading(raw: unknown, c: Config, now: number): Reading {
+  const r=normalizeStatusReading(raw,c,now);
+  if(r.soc===undefined||r.dischargeWatts===undefined)throw new SafeError('measurement_missing_or_invalid');
+  return {at:r.at,soc:r.soc,dischargeWatts:r.dischargeWatts};
 }

@@ -144,6 +144,10 @@ test('both view kinds stay within the complete 1000-unit bound with maximum vali
   const state = seed(context); state.latestReading!.dischargeWatts = Number.MAX_VALUE; state.apiRetryAt = 8.64e15;
   const bot = report('charging', now, context); Object.assign(bot.session, { profileId: 'p0' });
   const before = JSON.stringify({ state, context, bot });
+  for(const partial of [{version:1,at:now,soc:99},{version:1,at:now,dischargeWatts:Number.MAX_VALUE},{version:1,at:now}]){
+    const withPartial={...state,batteryStatus:partial};
+    for(const kind of ['status','recap'] as const)bounded(renderBriefSnapshot(withPartial,context,now,bot,{kind}));
+  }
   for (const enabled of [true, false]) {
     for (const kind of ['status', 'recap'] as const) {
       const text = renderBriefSnapshot(state, { ...context, enabled }, now, bot, { kind });
